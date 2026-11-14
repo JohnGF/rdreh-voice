@@ -1,0 +1,736 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <meta name="theme-color" content="#0e1116" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <title>rdreh Voice</title>
+  <style>
+    :root {
+      --bg: #0e1116;
+      --card: #161b22;
+      --card-alt: #1b222c;
+      --border: #2a313c;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --accent: #3b82f6;
+      --green: #22c55e;
+      --amber: #f59e0b;
+      --red: #ef4444;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+    .app {
+      display: flex;
+      flex-direction: column;
+      height: 100dvh;
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 8px;
+      gap: 6px;
+    }
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      flex-wrap: wrap;
+      flex-shrink: 0;
+    }
+    .counts {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .toggles {
+      display: flex;
+      gap: 5px;
+      flex-wrap: wrap;
+    }
+    button {
+      background: var(--card);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+    button.on {
+      border-color: var(--accent);
+      background: #1d2d44;
+    }
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    button.danger {
+      border-color: var(--red);
+      color: #fca5a5;
+    }
+    .tabs {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      padding-bottom: 2px;
+      flex-shrink: 0;
+    }
+    .tab-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+      padding: 7px 11px;
+    }
+    .tab-btn.active {
+      border-color: var(--accent);
+      background: #1d2d44;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+      flex-shrink: 0;
+    }
+    .dot.working { background: var(--amber); }
+    .dot.idle { background: var(--green); }
+
+    .grid {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-auto-rows: minmax(0, 1fr);
+      gap: 6px;
+    }
+    .grid.single {
+      grid-template-columns: 1fr;
+    }
+    .pane-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .pane-card.selected {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent);
+    }
+    .pane-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      padding: 5px 8px;
+      background: var(--card-alt);
+      border-bottom: 1px solid var(--border);
+      font-size: 11px;
+      flex-shrink: 0;
+    }
+    .pane-title {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 600;
+    }
+    .badge {
+      background: #263244;
+      color: #93c5fd;
+      border-radius: 5px;
+      padding: 1px 5px;
+      font-size: 11px;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+    .pane-actions {
+      display: flex;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+    .pane-actions button {
+      padding: 3px 6px;
+      font-size: 11px;
+      border-radius: 6px;
+    }
+    pre.pane-tail {
+      margin: 0;
+      padding: 6px 8px;
+      flex: 1;
+      overflow-y: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11px;
+      line-height: 1.32;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .empty {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      font-size: 13px;
+      background: var(--card);
+      border: 1px dashed var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      text-align: center;
+    }
+    .spoken {
+      font-size: 12px;
+      color: #93c5fd;
+      min-height: 16px;
+      padding: 0 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      flex-shrink: 0;
+    }
+    .quick {
+      display: flex;
+      gap: 5px;
+      overflow-x: auto;
+      flex-shrink: 0;
+    }
+    .composer {
+      display: flex;
+      gap: 6px;
+      align-items: stretch;
+      flex-shrink: 0;
+    }
+    textarea#cmd {
+      flex: 1;
+      background: var(--card);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-size: 15px;
+      font-family: inherit;
+      resize: none;
+      min-height: 46px;
+      max-height: 110px;
+    }
+    textarea#cmd:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="topbar">
+      <div class="counts" id="counts">Connecting...</div>
+      <div class="toggles">
+        <button id="btn-autoread" class="on">Auto-Read: ON</button>
+        <button id="btn-notify">Notify: OFF</button>
+        <button id="btn-autosend">Auto-Send: OFF</button>
+        <button id="btn-wake">Wake: OFF</button>
+      </div>
+    </div>
+
+    <div class="tabs" id="tabs"></div>
+
+    <div class="grid" id="grid"></div>
+
+    <div class="spoken" id="spoken"></div>
+
+    <div class="quick">
+      <button data-quick="y">Yes</button>
+      <button data-quick="n">No</button>
+      <button data-quick="">Enter</button>
+      <button data-ctrl-c="1" class="danger">Ctrl+C</button>
+      <button id="btn-status">Status</button>
+      <button id="btn-readall">Read All</button>
+      <button id="btn-mic" style="display:none">Mic</button>
+    </div>
+
+    <div class="composer">
+      <textarea
+        id="cmd"
+        rows="2"
+        placeholder='Say: "yes to agent 1", "window 2", "send to agent 2: run tests", or prompt...'
+        enterkeyhint="send"
+        autocapitalize="sentences"
+      ></textarea>
+      <button id="btn-send" class="primary">Send</button>
+    </div>
+  </div>
+
+  <script>
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+    }
+
+    let token = new URLSearchParams(location.search).get("token") || localStorage.getItem("rdr_voice_token") || "";
+    if (new URLSearchParams(location.search).get("token")) {
+      localStorage.setItem("rdr_voice_token", token);
+    }
+    const api = (path, opts = {}) => {
+      const sep = path.includes("?") ? "&" : "?";
+      const url = token ? `${path}${sep}token=${encodeURIComponent(token)}` : path;
+      return fetch(url, opts).then((r) => r.json());
+    };
+
+    let allPanes = [];
+    let workspaces = [];
+    let viewMode = "agents"; // "agents" | "workspace"
+    let activeWorkspace = null;
+    let selectedPaneId = null;
+    let zoomedPaneId = null;
+    let tailCache = new Map();
+    let prevStates = new Map();
+    let initialized = false;
+    let autoRead = true;
+    let notifyEnabled = localStorage.getItem("rdr_voice_notify") === "1"
+      && "Notification" in window
+      && Notification.permission === "granted";
+    let autoSend = false;
+    let autoSendTimer = null;
+    let wakeLock = null;
+
+    const countsEl = document.getElementById("counts");
+    const tabsEl = document.getElementById("tabs");
+    const gridEl = document.getElementById("grid");
+    const spokenEl = document.getElementById("spoken");
+    const cmdEl = document.getElementById("cmd");
+
+    function paneSpokenName(p) {
+      const base = p.agent_num != null
+        ? `Agent ${p.agent_num}`
+        : `Window ${p.workspace_index} pane ${p.ws_pane_num}`;
+      return p.job_label ? `${base} ${p.job_label}` : base;
+    }
+
+    function formatPaneSpeech(p, t) {
+      const who = paneSpokenName(p);
+      const body = (t && t.spoken) ? ` ${t.spoken}` : "";
+      if (t && t.kind === "question") return `${who} is asking a question.${body}`;
+      if (t && t.kind === "action") return `${who} needs action.${body}`;
+      if (p.state === "working") return `${who} is working.${body}`;
+      return `${who} finished.${body} What are your actions?`;
+    }
+
+    async function sendBrowserNotification(p, t) {
+      if (!notifyEnabled || !("Notification" in window) || Notification.permission !== "granted") return;
+      const who = paneSpokenName(p);
+      const kind = t && t.kind;
+      const status = kind === "question" ? "is asking a question" : kind === "action" ? "needs action" : "finished";
+      const title = `${who} ${status}`;
+      const body = (t && t.spoken) ? t.spoken : "What are your actions?";
+      const opts = { body, tag: `rdr-pane-${p.id}`, renotify: true };
+      try {
+        if ("serviceWorker" in navigator) {
+          const reg = await navigator.serviceWorker.ready;
+          if (reg && reg.showNotification) {
+            await reg.showNotification(title, opts);
+            return;
+          }
+        }
+        new Notification(title, opts);
+      } catch (_) {}
+    }
+
+    function speak(text) {
+      if (!text) return;
+      spokenEl.textContent = text;
+      if (!("speechSynthesis" in window)) return;
+      window.speechSynthesis.cancel();
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.rate = 1.08;
+      window.speechSynthesis.speak(utter);
+    }
+
+    function visiblePanes() {
+      let list;
+      if (viewMode === "agents") {
+        const agents = allPanes.filter((p) => p.agent);
+        list = agents.length > 0 ? agents : allPanes;
+      } else {
+        list = allPanes.filter((p) => p.workspace_index === activeWorkspace);
+      }
+      if (zoomedPaneId != null) {
+        const z = list.find((p) => p.id === zoomedPaneId);
+        if (z) return [z];
+        zoomedPaneId = null;
+      }
+      return list;
+    }
+
+    function paneBadge(p) {
+      if (viewMode === "agents" && p.agent_num != null) return `A${p.agent_num}`;
+      if (viewMode === "workspace") return `P${p.ws_pane_num}`;
+      return `#${p.global_num}`;
+    }
+
+    function renderTabs() {
+      tabsEl.innerHTML = "";
+
+      const agents = allPanes.filter((p) => p.agent);
+      const agentsWorking = agents.some((p) => p.state === "working");
+      const agentsBtn = document.createElement("button");
+      agentsBtn.className = "tab-btn" + (viewMode === "agents" ? " active" : "");
+      const aDot = document.createElement("span");
+      aDot.className = "dot " + (agentsWorking ? "working" : agents.length ? "idle" : "");
+      const aLbl = document.createElement("span");
+      aLbl.textContent = `Agents (${agents.length})`;
+      agentsBtn.append(aDot, aLbl);
+      agentsBtn.onclick = () => {
+        viewMode = "agents";
+        zoomedPaneId = null;
+        renderTabs();
+        renderGrid();
+        refreshTails();
+      };
+      tabsEl.appendChild(agentsBtn);
+
+      for (const ws of workspaces) {
+        const wsWorking = ws.panes.some((p) => p.state === "working");
+        const wsIdle = ws.panes.some((p) => p.state === "idle");
+        const btn = document.createElement("button");
+        btn.className = "tab-btn" + (viewMode === "workspace" && activeWorkspace === ws.index ? " active" : "");
+        const dot = document.createElement("span");
+        dot.className = "dot " + (wsWorking ? "working" : wsIdle ? "idle" : "");
+        const lbl = document.createElement("span");
+        lbl.textContent = `W${ws.index}: ${ws.name} (${ws.panes.length})`;
+        btn.append(dot, lbl);
+        btn.onclick = () => {
+          viewMode = "workspace";
+          activeWorkspace = ws.index;
+          zoomedPaneId = null;
+          renderTabs();
+          renderGrid();
+          refreshTails();
+        };
+        tabsEl.appendChild(btn);
+      }
+    }
+
+    function renderGrid() {
+      const list = visiblePanes();
+      gridEl.className = "grid" + (list.length <= 1 ? " single" : "");
+      gridEl.innerHTML = "";
+
+      if (list.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "empty";
+        empty.textContent = "No panes in this view.";
+        gridEl.appendChild(empty);
+        return;
+      }
+
+      if (selectedPaneId == null || !list.some((p) => p.id === selectedPaneId)) {
+        const focused = list.find((p) => p.focused) || list[0];
+        selectedPaneId = focused.id;
+      }
+
+      for (const p of list) {
+        const card = document.createElement("div");
+        card.className = "pane-card" + (p.id === selectedPaneId ? " selected" : "");
+        card.onclick = () => {
+          if (selectedPaneId !== p.id) {
+            selectedPaneId = p.id;
+            renderGrid();
+          }
+        };
+
+        const head = document.createElement("div");
+        head.className = "pane-head";
+
+        const titleWrap = document.createElement("div");
+        titleWrap.className = "pane-title";
+        const badge = document.createElement("span");
+        badge.className = "badge";
+        badge.textContent = paneBadge(p);
+        const dot = document.createElement("span");
+        dot.className = "dot " + (p.state === "working" ? "working" : p.state === "idle" ? "idle" : "");
+        const name = document.createElement("span");
+        const label = p.title || p.command || `pane ${p.id}`;
+        name.textContent = viewMode === "agents" ? `${label} · W${p.workspace_index}` : label;
+        titleWrap.append(badge, dot, name);
+
+        const actions = document.createElement("div");
+        actions.className = "pane-actions";
+
+        const readBtn = document.createElement("button");
+        readBtn.textContent = "Read";
+        readBtn.onclick = async (ev) => {
+          ev.stopPropagation();
+          selectedPaneId = p.id;
+          const t = await api(`/api/tail?pane=${p.id}&lines=40`);
+          if (t.ok) speak(formatPaneSpeech(p, t));
+        };
+
+        const zoomBtn = document.createElement("button");
+        zoomBtn.textContent = zoomedPaneId === p.id ? "Grid" : "Zoom";
+        zoomBtn.onclick = (ev) => {
+          ev.stopPropagation();
+          selectedPaneId = p.id;
+          zoomedPaneId = zoomedPaneId === p.id ? null : p.id;
+          renderGrid();
+          refreshTails();
+        };
+
+        actions.append(readBtn, zoomBtn);
+        head.append(titleWrap, actions);
+
+        const pre = document.createElement("pre");
+        pre.className = "pane-tail";
+        pre.dataset.paneId = String(p.id);
+        pre.textContent = tailCache.get(p.id) || "(loading...)";
+
+        card.append(head, pre);
+        gridEl.appendChild(card);
+        pre.scrollTop = pre.scrollHeight;
+      }
+    }
+
+    async function refreshTails() {
+      const list = visiblePanes();
+      if (list.length === 0) return;
+      const ids = list.map((p) => p.id).join(",");
+      const lines = zoomedPaneId != null ? 50 : 20;
+      const res = await api(`/api/tails?panes=${encodeURIComponent(ids)}&lines=${lines}`);
+      if (!res.ok || !res.tails) return;
+      for (const [pidStr, info] of Object.entries(res.tails)) {
+        const pid = Number(pidStr);
+        tailCache.set(pid, info.text || "(empty)");
+        const pre = gridEl.querySelector(`pre[data-pane-id="${pid}"]`);
+        if (pre) {
+          const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;
+          pre.textContent = info.text || "(empty)";
+          if (atBottom) pre.scrollTop = pre.scrollHeight;
+        }
+      }
+    }
+
+    async function refreshPanes() {
+      try {
+        const res = await api("/api/panes");
+        if (!res.ok) {
+          countsEl.textContent = res.error || "rdreh offline";
+          if (res.error === "unauthorized") {
+            gridEl.className = "grid single";
+            gridEl.innerHTML = `<div class="empty" style="flex-direction:column;gap:8px;">
+              <div>Token required (<code>RDR_VOICE_TOKEN</code> is set)</div>
+              <div style="display:flex;gap:6px;">
+                <input id="tok-in" type="password" placeholder="Enter token" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 10px;" />
+                <button id="tok-save" class="primary">Unlock</button>
+              </div>
+            </div>`;
+            document.getElementById("tok-save").onclick = () => {
+              token = document.getElementById("tok-in").value.trim();
+              localStorage.setItem("rdr_voice_token", token);
+              refreshPanes();
+            };
+          }
+          return;
+        }
+        allPanes = res.panes || [];
+        workspaces = res.workspaces || [];
+        if (activeWorkspace == null && workspaces.length > 0) {
+          const activeWs = workspaces.find((w) => w.active) || workspaces[0];
+          activeWorkspace = activeWs.index;
+        }
+
+        const c = res.counts || { total: 0, busy: 0, finished: 0 };
+        countsEl.textContent = `${workspaces.length} win · ${allPanes.length} panes · ${c.busy} busy · ${c.finished} done`;
+
+        // Detect working -> idle transitions across all panes
+        const newlyFinished = [];
+        for (const p of allPanes) {
+          const prev = prevStates.get(p.id);
+          if (initialized && prev === "working" && p.state === "idle") {
+            newlyFinished.push(p);
+          }
+          prevStates.set(p.id, p.state);
+        }
+        initialized = true;
+
+        renderTabs();
+        renderGrid();
+        await refreshTails();
+
+        if ((autoRead || notifyEnabled) && newlyFinished.length > 0) {
+          const p = newlyFinished[0];
+          const t = await api(`/api/tail?pane=${p.id}&lines=40`);
+          if (autoRead) speak(formatPaneSpeech(p, t));
+          if (notifyEnabled) sendBrowserNotification(p, t);
+        }
+      } catch (err) {
+        countsEl.textContent = "Disconnected";
+      }
+    }
+
+    async function runCommandText(transcript) {
+      const text = transcript.trim();
+      if (!text) return;
+      try {
+        const res = await api("/api/command", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            transcript: text,
+            default_pane: selectedPaneId,
+            active_workspace: activeWorkspace,
+            view_mode: viewMode,
+          }),
+        });
+        if (res.action === "switch_view") {
+          viewMode = res.view_mode || viewMode;
+          if (res.workspace_index != null) activeWorkspace = res.workspace_index;
+          zoomedPaneId = null;
+        }
+        if (res.pane) selectedPaneId = res.pane;
+        if (res.spoken) speak(res.spoken);
+        else if (res.error) speak(res.error);
+        await refreshPanes();
+      } catch (err) {
+        spokenEl.textContent = `Send failed: ${err && err.message ? err.message : err}`;
+      }
+    }
+
+    document.getElementById("btn-send").onclick = async () => {
+      const val = cmdEl.value;
+      cmdEl.value = "";
+      await runCommandText(val);
+    };
+
+    cmdEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        document.getElementById("btn-send").click();
+      }
+    });
+
+    cmdEl.addEventListener("input", () => {
+      if (!autoSend) return;
+      clearTimeout(autoSendTimer);
+      autoSendTimer = setTimeout(() => {
+        if (cmdEl.value.trim()) {
+          document.getElementById("btn-send").click();
+        }
+      }, 1600);
+    });
+
+    document.querySelectorAll("button[data-quick]").forEach((btn) => {
+      btn.onclick = async () => {
+        if (selectedPaneId == null) return;
+        await api("/api/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pane: selectedPaneId, text: btn.dataset.quick, enter: true }),
+        });
+        await refreshTails();
+      };
+    });
+
+    document.querySelector("button[data-ctrl-c]").onclick = async () => {
+      if (selectedPaneId == null) return;
+      await api("/api/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pane: selectedPaneId, text: "\u0003", enter: false }),
+      });
+      await refreshTails();
+    };
+
+    document.getElementById("btn-status").onclick = () => runCommandText("status");
+    document.getElementById("btn-readall").onclick = () => runCommandText("read all");
+
+    document.getElementById("btn-autoread").onclick = (e) => {
+      autoRead = !autoRead;
+      e.target.textContent = `Auto-Read: ${autoRead ? "ON" : "OFF"}`;
+      e.target.classList.toggle("on", autoRead);
+    };
+
+    const notifyBtn = document.getElementById("btn-notify");
+    const syncNotifyBtn = () => {
+      notifyBtn.textContent = `Notify: ${notifyEnabled ? "ON" : "OFF"}`;
+      notifyBtn.classList.toggle("on", notifyEnabled);
+    };
+    syncNotifyBtn();
+    notifyBtn.onclick = async () => {
+      if (!("Notification" in window)) {
+        spokenEl.textContent = "Notifications not supported in this browser";
+        return;
+      }
+      if (!notifyEnabled) {
+        const perm = Notification.permission === "granted"
+          ? "granted"
+          : await Notification.requestPermission();
+        if (perm !== "granted") {
+          spokenEl.textContent = "Notification permission denied";
+          return;
+        }
+        notifyEnabled = true;
+        localStorage.setItem("rdr_voice_notify", "1");
+      } else {
+        notifyEnabled = false;
+        localStorage.setItem("rdr_voice_notify", "0");
+      }
+      syncNotifyBtn();
+    };
+
+    document.getElementById("btn-autosend").onclick = (e) => {
+      autoSend = !autoSend;
+      e.target.textContent = `Auto-Send: ${autoSend ? "ON" : "OFF"}`;
+      e.target.classList.toggle("on", autoSend);
+    };
+
+    document.getElementById("btn-wake").onclick = async (e) => {
+      if (!("wakeLock" in navigator)) {
+        spokenEl.textContent = "Wake Lock not supported in this browser";
+        return;
+      }
+      if (wakeLock) {
+        await wakeLock.release();
+        wakeLock = null;
+        e.target.textContent = "Wake: OFF";
+        e.target.classList.remove("on");
+      } else {
+        wakeLock = await navigator.wakeLock.request("screen");
+        e.target.textContent = "Wake: ON";
+        e.target.classList.add("on");
+      }
+    };
+
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRec) {
+      const micBtn = document.getElementById("btn-mic");
+      micBtn.style.display = "inline-block";
+      const rec = new SpeechRec();
+      rec.lang = "en-US";
+      rec.interimResults = false;
+      rec.onresult = (ev) => {
+        const transcript = ev.results[0][0].transcript;
+        cmdEl.value = transcript;
+        document.getElementById("btn-send").click();
+      };
+      micBtn.onclick = () => rec.start();
+    }
+
+    refreshPanes();
+    setInterval(refreshPanes, 2500);
+  </script>
+</body>
+</html>
