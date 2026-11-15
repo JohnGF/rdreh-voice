@@ -156,7 +156,9 @@ class VoiceCaptureActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 override fun onDone(utteranceId: String?) {
                     if (autoContinue && utteranceId == "cmd-reply") {
                         runOnUiThread {
-                            if (!isFinishing && !isDestroyed) restartListening()
+                            statusView.postDelayed({
+                                if (!isFinishing && !isDestroyed) restartListening()
+                            }, 350)
                         }
                     }
                 }
@@ -168,16 +170,15 @@ class VoiceCaptureActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun restartListening() {
-        recognizer?.destroy()
-        recognizer = null
         startPulseAnimation()
         startListening()
     }
 
     private fun startListening() {
         BluetoothAudioHelper.enableBluetoothMic(this)
-        recognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {
-            setRecognitionListener(object : RecognitionListener {
+        if (recognizer == null) {
+            recognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {
+                setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) {
                     (pulseDot.background as? GradientDrawable)?.setColor(Color.parseColor("#22C55E"))
                     statusView.text = "Listening — speak now"
@@ -200,9 +201,30 @@ class VoiceCaptureActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 }
 
                 override fun onError(error: Int) {
-                    stopPulseAnimation("#EF4444")
                     BluetoothAudioHelper.disableBluetoothMic(this@VoiceCaptureActivity)
-                    statusView.text = "Speech error ($error)"
+                    when (error) {
+                        SpeechRecognizer.ERROR_NO_MATCH,
+                        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
+                            stopPulseAnimation("#38BDF8")
+                            statusView.text = "Tap Listen to speak"
+                        }
+                        SpeechRecognizer.ERROR_RECOGNIZER_BUSY,
+                        11 /* ERROR_SERVER_DISCONNECTED */ -> {
+                            if (error == 11) {
+                                recognizer?.destroy()
+                                recognizer = null
+                            }
+                            stopPulseAnimation("#FBBF24")
+                            statusView.text = "Reconnecting mic..."
+                            statusView.postDelayed({
+                                if (!isFinishing && !isDestroyed) restartListening()
+                            }, 500)
+                        }
+                        else -> {
+                            stopPulseAnimation("#EF4444")
+                            statusView.text = "Speech error ($error) — tap Listen"
+                        }
+                    }
                 }
 
                 override fun onResults(results: Bundle) {
@@ -230,7 +252,8 @@ class VoiceCaptureActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 }
 
                 override fun onEvent(eventType: Int, params: Bundle?) {}
-            })
+                })
+            }
         }
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
