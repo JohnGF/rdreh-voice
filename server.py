@@ -191,7 +191,8 @@ def analyze_for_tts(text: str, *, max_chars: int = 480) -> dict[str, Any]:
     """Extract only relevant spoken content and classify whether user action is needed."""
     lines = _extract_clean_lines(text)
     if not lines:
-        return {"kind": "finished", "spoken": "", "question": "", "options": []}
+        return {"kind": "finished", "spoken": "", "message": "", "question": "", "options": []}
+    full_message = "\n".join(lines[-25:])
 
     # 1. Check for numbered options / choices (e.g. permission menu or multi-choice question)
     extracted = _extract_options(lines[-20:])
@@ -206,6 +207,7 @@ def analyze_for_tts(text: str, *, max_chars: int = 480) -> dict[str, Any]:
         return {
             "kind": kind,
             "spoken": _truncate_spoken(spoken, max_chars),
+            "message": full_message,
             "question": ctx,
             "options": options,
         }
@@ -226,6 +228,7 @@ def analyze_for_tts(text: str, *, max_chars: int = 480) -> dict[str, Any]:
         return {
             "kind": "action",
             "spoken": _truncate_spoken(spoken, max_chars),
+            "message": full_message,
             "question": " ".join(recent[start:]),
             "options": [],
         }
@@ -238,6 +241,7 @@ def analyze_for_tts(text: str, *, max_chars: int = 480) -> dict[str, Any]:
         return {
             "kind": "question",
             "spoken": _truncate_spoken(spoken, max_chars),
+            "message": full_message,
             "question": " ".join(recent[start:]),
             "options": [],
         }
@@ -246,7 +250,13 @@ def analyze_for_tts(text: str, *, max_chars: int = 480) -> dict[str, Any]:
     prose = [ln for ln in recent if len(ln.split()) >= 3]
     chosen = prose[-4:] if prose else recent[-3:]
     spoken = sanitize_for_speech(" ".join(chosen))
-    return {"kind": "finished", "spoken": _truncate_spoken(spoken, max_chars), "question": "", "options": []}
+    return {
+        "kind": "finished",
+        "spoken": _truncate_spoken(spoken, max_chars),
+        "message": full_message,
+        "question": "",
+        "options": [],
+    }
 
 
 def clean_for_tts(text: str, max_lines: int = 6, max_chars: int = 420) -> str:
@@ -1249,6 +1259,7 @@ def make_handler(rdr_bin: str, session: str | None, token: str | None) -> type[B
                             "text": text,
                             "kind": analysis["kind"],
                             "spoken": analysis["spoken"],
+                            "message": analysis.get("message", ""),
                             "question": analysis.get("question", ""),
                             "options": analysis.get("options", []),
                         },
@@ -1266,6 +1277,7 @@ def make_handler(rdr_bin: str, session: str | None, token: str | None) -> type[B
                                 "text": text,
                                 "kind": analysis["kind"],
                                 "spoken": analysis["spoken"],
+                                "message": analysis.get("message", ""),
                                 "question": analysis.get("question", ""),
                                 "options": analysis.get("options", []),
                             }

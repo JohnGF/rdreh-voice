@@ -390,9 +390,21 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             addView(header)
 
             val tailInfo = lastTails.optJSONObject(paneId.toString())
+            val fullMsg = tailInfo?.optString("message", "")?.trim().orEmpty()
+                .ifEmpty { tailInfo?.optString("spoken", "")?.trim().orEmpty() }
             val question = tailInfo?.optString("question", "")?.trim().orEmpty()
             val options = tailInfo?.optJSONArray("options")
-            if (question.isNotEmpty()) {
+            if (fullMsg.isNotEmpty()) {
+                addView(TextView(this@MainActivity).apply {
+                    text = fullMsg
+                    textSize = 12f
+                    setTextColor(Color.parseColor("#CBD5E1"))
+                    setBackgroundColor(Color.parseColor("#0F172A"))
+                    setPadding(14, 10, 14, 10)
+                    setTextIsSelectable(true)
+                })
+            }
+            if (question.isNotEmpty() && question != fullMsg) {
                 addView(TextView(this@MainActivity).apply {
                     text = question
                     textSize = 13f
