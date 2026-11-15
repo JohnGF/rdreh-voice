@@ -497,6 +497,63 @@ Which approach do you prefer?
                 self.assertEqual(alt["pane"], 11)
                 mock_send.assert_called_with("rdr", None, 11, "check logs", True)
 
+    def test_safety_mode_confirms_mutations_not_reads(self) -> None:
+        fake_state = {
+            "ok": True,
+            "panes": [
+                {
+                    "id": 17,
+                    "workspace_index": 1,
+                    "pane_index": 1,
+                    "agent_num": 2,
+                    "agent": True,
+                    "state": "idle",
+                    "focused": False,
+                    "cwd": "/home/john/git/rdreh",
+                    "job_label": "rdreh",
+                }
+            ],
+            "workspaces": [{"index": 1, "name": "agents", "active": True, "panes": [17]}],
+            "counts": {"total": 1, "busy": 0, "finished": 1},
+        }
+        with patch.object(server, "fetch_panes", return_value=fake_state):
+            with patch.object(server, "send_to_pane") as mock_send:
+                # High-confidence send in safety mode asks for confirmation first
+                ask = server.parse_and_execute_command(
+                    "rdr",
+                    None,
+                    "agent tool run tests",
+                    None,
+                    confidence=0.95,
+                    safety_mode=True,
+                )
+                self.assertFalse(ask["ok"])
+                self.assertEqual(ask["action"], "confirm")
+                self.assertIn("Agent 2: run tests?", ask["spoken"])
+                mock_send.assert_not_called()
+
+                # Confirming executes the send
+                done = server.parse_and_execute_command(
+                    "rdr",
+                    None,
+                    "agent tool run tests",
+                    None,
+                    confidence=0.95,
+                    safety_mode=True,
+                    confirmed=True,
+                )
+                self.assertTrue(done["ok"])
+                self.assertEqual(done["pane"], 17)
+                mock_send.assert_called_once_with("rdr", None, 17, "run tests", True)
+
+            with patch.object(server, "tail_pane", return_value="Tests passed."):
+                # Read-only commands execute immediately even in safety mode
+                rd = server.parse_and_execute_command(
+                    "rdr", None, "agent 2 read", None, confidence=0.95, safety_mode=True
+                )
+                self.assertTrue(rd["ok"])
+                self.assertEqual(rd["action"], "read")
+
 
 if __name__ == "__main__":
     unittest.main()

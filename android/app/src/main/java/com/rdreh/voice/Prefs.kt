@@ -7,6 +7,7 @@ object Prefs {
     private const val KEY_URL = "server_url"
     private const val KEY_TOKEN = "auth_token"
     private const val KEY_SPEECH_MODE = "speech_mode"
+    private const val KEY_SAFETY_MODE = "safety_mode"
 
     const val MODE_FULL = "full"
     const val MODE_BRIEF = "brief"
@@ -29,6 +30,16 @@ object Prefs {
     fun setSpeechMode(ctx: Context, mode: String) {
         ctx.getSharedPreferences(NAME, Context.MODE_PRIVATE).edit()
             .putString(KEY_SPEECH_MODE, mode)
+            .apply()
+    }
+
+    fun getSafetyMode(ctx: Context): Boolean =
+        ctx.getSharedPreferences(NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_SAFETY_MODE, true)
+
+    fun setSafetyMode(ctx: Context, enabled: Boolean) {
+        ctx.getSharedPreferences(NAME, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_SAFETY_MODE, enabled)
             .apply()
     }
 

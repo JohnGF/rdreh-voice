@@ -93,6 +93,22 @@ class VoiceCaptureActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             })
         }
 
+        val safetyBtn = Button(this).apply {
+            fun refresh() {
+                val on = Prefs.getSafetyMode(this@VoiceCaptureActivity)
+                text = if (on) "Safety: ON (confirm)" else "Safety: OFF"
+                setTextColor(if (on) Color.parseColor("#38BDF8") else Color.parseColor("#94A3B8"))
+            }
+            refresh()
+            textSize = 12f
+            setBackgroundColor(Color.TRANSPARENT)
+            setOnClickListener {
+                val next = !Prefs.getSafetyMode(this@VoiceCaptureActivity)
+                Prefs.setSafetyMode(this@VoiceCaptureActivity, next)
+                refresh()
+            }
+        }
+
         val bubbleCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
@@ -114,6 +130,7 @@ class VoiceCaptureActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             addView(levelBar)
             addView(statusView)
             addView(btnRow)
+            addView(safetyBtn)
         }
 
         val backdrop = FrameLayout(this).apply {
@@ -305,6 +322,7 @@ class VoiceCaptureActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val payload = JSONObject()
             .put("transcript", transcript)
             .put("view_mode", "agents")
+            .put("safety_mode", Prefs.getSafetyMode(this))
         if (confidence != null) {
             payload.put("confidence", confidence.toDouble())
         }

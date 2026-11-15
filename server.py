@@ -476,6 +476,7 @@ SPOKEN_NUMS = {
     "won": "1",
     "to": "2",
     "too": "2",
+    "tool": "2",
 }
 
 
@@ -664,6 +665,7 @@ def parse_and_execute_command(
     confidence: float | None = None,
     alternatives: list[str] | None = None,
     confirmed: bool = False,
+    safety_mode: bool = False,
 ) -> dict[str, Any]:
     chosen = _select_best_transcript(transcript, alternatives)
     raw = normalize_spoken_targets(chosen.strip())
@@ -720,6 +722,32 @@ def parse_and_execute_command(
         num = pane_label_num(target, "workspace" if ws_ref is not None else view_mode)
         noun = "agent" if (ws_ref is None and view_mode == "agents" and target.get("agent_num") is not None) else "pane"
         return num, noun
+
+    def _send_or_confirm(
+        target: dict[str, Any],
+        text: str,
+        enter: bool,
+        *,
+        spoken_ok: str,
+        confirm_prompt: str,
+    ) -> dict[str, Any]:
+        if safety_mode and not confirmed:
+            cleaned = chosen.strip()
+            return {
+                "ok": False,
+                "action": "confirm",
+                "pane": target["id"],
+                "transcript": cleaned,
+                "pending_transcript": cleaned,
+                "spoken": f"{confirm_prompt} Say yes to send, or no to cancel.",
+            }
+        send_to_pane(rdr_bin, session, target["id"], text, enter)
+        return {
+            "ok": True,
+            "action": "send",
+            "pane": target["id"],
+            "spoken": spoken_ok,
+        }
 
     # Optional leading target prefix: "agent 3 <cmd/msg>", "tell agent 1 to <msg>", "3 <cmd/msg>", "one clear"
     lead_explicit = re.match(
@@ -941,15 +969,16 @@ def parse_and_execute_command(
         target = _resolve_or_default(num)
         if not target:
             return {"ok": False, "error": "No target pane available", "spoken": "No pane found."}
-        send_to_pane(rdr_bin, session, target["id"], slash_cmd, True)
         lnum, noun = _label(target)
         past = "Compacted" if slash_cmd == "/compact" else "Cleared"
-        return {
-            "ok": True,
-            "action": "send",
-            "pane": target["id"],
-            "spoken": f"{past} {noun} {lnum}.",
-        }
+        verb_word = "Compact" if slash_cmd == "/compact" else "Clear"
+        return _send_or_confirm(
+            target,
+            slash_cmd,
+            True,
+            spoken_ok=f"{past} {noun} {lnum}.",
+            confirm_prompt=f"{verb_word} {noun} {lnum}?",
+        )
 
     # "yes", "yes to agent 1", "approve agent 2", "yes 1"
     m = re.match(r"^(yes|yep|yeah|approve|confirm|ok)(?:\s+(?:to\s+)?(?:agent\s+|pane\s+)?(\d+))?$", lower)
@@ -960,14 +989,14 @@ def parse_and_execute_command(
             err = f"Unknown target {num}" if num is not None else "No target pane available"
             spoken = f"Target {num} not found." if num is not None else "No pane found."
             return {"ok": False, "error": err, "spoken": spoken}
-        send_to_pane(rdr_bin, session, target["id"], "y", True)
         lnum, noun = _label(target)
-        return {
-            "ok": True,
-            "action": "send",
-            "pane": target["id"],
-            "spoken": f"Sent yes to {noun} {lnum}.",
-        }
+        return _send_or_confirm(
+            target,
+            "y",
+            True,
+            spoken_ok=f"Sent yes to {noun} {lnum}.",
+            confirm_prompt=f"Send yes to {noun} {lnum}?",
+        )
 
     # "no", "no to agent 1", "reject agent 2", "no 2"
     m = re.match(r"^(no|nope|reject|deny)(?:\s+(?:to\s+)?(?:agent\s+|pane\s+)?(\d+))?$", lower)
@@ -978,14 +1007,14 @@ def parse_and_execute_command(
             err = f"Unknown target {num}" if num is not None else "No target pane available"
             spoken = f"Target {num} not found." if num is not None else "No pane found."
             return {"ok": False, "error": err, "spoken": spoken}
-        send_to_pane(rdr_bin, session, target["id"], "n", True)
         lnum, noun = _label(target)
-        return {
-            "ok": True,
-            "action": "send",
-            "pane": target["id"],
-            "spoken": f"Sent no to {noun} {lnum}.",
-        }
+        return _send_or_confirm(
+            target,
+            "n",
+            True,
+            spoken_ok=f"Sent no to {noun} {lnum}.",
+            confirm_prompt=f"Send no to {noun} {lnum}?",
+        )
 
     # "cancel", "cancel agent 1", "stop agent 1"
     m = re.match(r"^(cancel|stop|abort|interrupt)(?:\s+(?:agent\s+|pane\s+)?(\d+))?$", lower)
@@ -996,14 +1025,14 @@ def parse_and_execute_command(
             err = f"Unknown target {num}" if num is not None else "No target pane available"
             spoken = f"Target {num} not found." if num is not None else "No pane found."
             return {"ok": False, "error": err, "spoken": spoken}
-        send_to_pane(rdr_bin, session, target["id"], "\x03", False)
         lnum, noun = _label(target)
-        return {
-            "ok": True,
-            "action": "send",
-            "pane": target["id"],
-            "spoken": f"Cancelled {noun} {lnum}.",
-        }
+        return _send_or_confirm(
+            target,
+            "\x03",
+            False,
+            spoken_ok=f"Cancelled {noun} {lnum}.",
+            confirm_prompt=f"Cancel {noun} {lnum}?",
+        )
 
     # "enter", "enter to agent 1", "continue agent 1"
     m = re.match(r"^(enter|continue|submit)(?:\s+(?:to\s+)?(?:agent\s+|pane\s+)?(\d+))?$", lower)
@@ -1014,14 +1043,14 @@ def parse_and_execute_command(
             err = f"Unknown target {num}" if num is not None else "No target pane available"
             spoken = f"Target {num} not found." if num is not None else "No pane found."
             return {"ok": False, "error": err, "spoken": spoken}
-        send_to_pane(rdr_bin, session, target["id"], "", True)
         lnum, noun = _label(target)
-        return {
-            "ok": True,
-            "action": "send",
-            "pane": target["id"],
-            "spoken": f"Pressed enter on {noun} {lnum}.",
-        }
+        return _send_or_confirm(
+            target,
+            "",
+            True,
+            spoken_ok=f"Pressed enter on {noun} {lnum}.",
+            confirm_prompt=f"Press enter on {noun} {lnum}?",
+        )
 
     # "read", "read agent 1", "what did agent 1 say"
     m = re.match(
@@ -1072,28 +1101,28 @@ def parse_and_execute_command(
             target = _resolve(num)
             if not target:
                 return {"ok": False, "error": f"Unknown target {num}", "spoken": f"Target {num} not found."}
-            send_to_pane(rdr_bin, session, target["id"], msg, True)
             lnum, noun = _label(target)
-            return {
-                "ok": True,
-                "action": "send",
-                "pane": target["id"],
-                "spoken": f"Sent to {noun} {lnum}.",
-            }
+            return _send_or_confirm(
+                target,
+                msg,
+                True,
+                spoken_ok=f"Sent to {noun} {lnum}.",
+                confirm_prompt=f"{noun.capitalize()} {lnum}: {msg}?",
+            )
     if m:
         num = int(m.group(1))
         msg = m.group(2).strip()
         target = _resolve(num)
         if not target:
             return {"ok": False, "error": f"Unknown target {num}", "spoken": f"Target {num} not found."}
-        send_to_pane(rdr_bin, session, target["id"], msg, True)
         lnum, noun = _label(target)
-        return {
-            "ok": True,
-            "action": "send",
-            "pane": target["id"],
-            "spoken": f"Sent to {noun} {lnum}.",
-        }
+        return _send_or_confirm(
+            target,
+            msg,
+            True,
+            spoken_ok=f"Sent to {noun} {lnum}.",
+            confirm_prompt=f"{noun.capitalize()} {lnum}: {msg}?",
+        )
 
     # Fallback: send raw transcript to default_pane if explicitly known; otherwise require an agent prefix
     if default_pane is None:
@@ -1106,14 +1135,14 @@ def parse_and_execute_command(
     target = next((p for p in panes if p["id"] == default_pane), None)
     if not target:
         return {"ok": False, "error": "No target pane available", "spoken": "No pane found."}
-    send_to_pane(rdr_bin, session, target["id"], scoped_raw, True)
     lnum, noun = _label(target)
-    return {
-        "ok": True,
-        "action": "send",
-        "pane": target["id"],
-        "spoken": f"Sent to {noun} {lnum}.",
-    }
+    return _send_or_confirm(
+        target,
+        scoped_raw,
+        True,
+        spoken_ok=f"Sent to {noun} {lnum}.",
+        confirm_prompt=f"{noun.capitalize()} {lnum}: {scoped_raw}?",
+    )
 
 
 def make_handler(rdr_bin: str, session: str | None, token: str | None) -> type[BaseHTTPRequestHandler]:
@@ -1282,6 +1311,7 @@ def make_handler(rdr_bin: str, session: str | None, token: str | None) -> type[B
                     raw_alts = body.get("alternatives")
                     alts = [str(a) for a in raw_alts] if isinstance(raw_alts, list) else None
                     confirmed = bool(body.get("confirmed", False))
+                    safety_mode = bool(body.get("safety_mode", False))
                     res = parse_and_execute_command(
                         rdr_bin,
                         session,
@@ -1292,6 +1322,7 @@ def make_handler(rdr_bin: str, session: str | None, token: str | None) -> type[B
                         confidence=conf,
                         alternatives=alts,
                         confirmed=confirmed,
+                        safety_mode=safety_mode,
                     )
                     conf_str = f"{conf:.2f}" if conf is not None else "n/a"
                     print(
