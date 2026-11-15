@@ -275,6 +275,14 @@ Which approach do you prefer?
                 self.assertEqual(snd["pane"], 9)
                 mock_send.assert_called_once_with("rdr", None, 9, "testing", True)
 
+    def test_sanitize_drops_colons_hyphens_and_filename_dots(self) -> None:
+        raw = "Updated server.py (http://10.0.0.100:8765) — check test_server.py; 100% pass!"
+        out = server.sanitize_for_speech(raw)
+        self.assertNotIn(":", out)
+        self.assertNotIn(";", out)
+        self.assertNotIn("server.py", out)
+        self.assertIn("100% pass!", out)
+
 
 if __name__ == "__main__":
     unittest.main()

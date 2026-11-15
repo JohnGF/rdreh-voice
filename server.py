@@ -77,7 +77,7 @@ def run_rdr(rdr_bin: str, session: str | None, args: list[str]) -> str:
 
 
 def sanitize_for_speech(text: str) -> str:
-    """Keep only spoken letters, digits, whitespace, and natural sentence punctuation."""
+    """Keep only spoken words, digits, and natural pause/sentence punctuation."""
     s = ANSI_RE.sub("", text)
     s = BOX_RE.sub(" ", s)
     # Normalize common typographic punctuation before stripping symbols
@@ -85,20 +85,30 @@ def sanitize_for_speech(text: str) -> str:
     s = s.replace("\u201c", " ").replace("\u201d", " ")
     s = s.replace("\u2013", "-").replace("\u2014", ", ")
     s = s.replace("&", " and ")
-    # Remove markdown emphasis/code ticks and path/identifier separators
+    # Convert semicolons and non-prose colons (e.g. :8765) to soft pauses/spaces
+    s = s.replace(";", ", ")
+    s = re.sub(r":(?!\s)", " ", s)
+    # Remove markdown emphasis/code ticks, paths, brackets, and operators
     s = re.sub(r"[`*_~#|\\/<>\[\]{}=+$@^]+", " ", s)
     # Replace parentheses with soft pauses
     s = s.replace("(", ", ").replace(")", ", ")
+    # Remove dots inside filenames/IPs/versions (e.g. server.py, 10.0.0.100)
+    s = re.sub(r"(?<=\w)\.(?=\w)", " ", s)
+    # Keep apostrophes only inside contractions/possessives (e.g. don't, agent's)
+    s = re.sub(r"(?<![A-Za-z])'|'(?![A-Za-z])", " ", s)
+    # Keep % only immediately after digits (e.g. 50%)
+    s = re.sub(r"(?<!\d)%", " ", s)
     # Strip any remaining non-letter/non-digit characters except basic sentence punctuation
-    s = re.sub(r"[^A-Za-z0-9.,?!:;'\-\s%]", " ", s)
-    # Convert spaced dashes into comma pauses, keeping intra-word hyphens (e.g. 20-30)
+    s = re.sub(r"[^A-Za-z0-9.,?!:'\-\s%]", " ", s)
+    # Convert spaced dashes into comma pauses, keeping intra-word hyphens (e.g. rdreh-voice, 20-30)
     s = re.sub(r"\s+-+\s+", ", ", s)
     s = re.sub(r"(?<!\w)-+|-(?!\w)", " ", s)
     # Clean up punctuation spacing and repeated punctuation
-    s = re.sub(r"\s+([.,?!:;])", r"\1", s)
-    s = re.sub(r"([.,?!:;]){2,}", r"\1", s)
+    s = re.sub(r"\s+([.,?!:])", r"\1", s)
+    s = re.sub(r"([.,?!:]){2,}", r"\1", s)
+    s = re.sub(r"(?:(?<=^)|(?<=\s))[.,?!:]+(?=\s|$)", " ", s)
     s = re.sub(r"\s+", " ", s).strip()
-    return s.strip(" ,;:-")
+    return s.strip(" ,:-")
 
 
 def _extract_clean_lines(text: str) -> list[str]:
