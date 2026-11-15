@@ -25,18 +25,13 @@
 
         <activity
             android:name=".MainActivity"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
+            android:exported="true" />
 
         <activity
             android:name=".VoiceCaptureActivity"
             android:exported="true"
             android:excludeFromRecents="true"
-            android:label="rdreh Listen"
+            android:label="rdreh-voice"
             android:launchMode="singleInstance"
             android:taskAffinity=""
             android:theme="@style/Theme.RdrVoiceOverlay">

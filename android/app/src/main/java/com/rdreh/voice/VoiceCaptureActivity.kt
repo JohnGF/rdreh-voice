@@ -70,9 +70,20 @@ class VoiceCaptureActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             setPadding(16, 4, 16, 20)
         }
 
-        val closeBtn = Button(this).apply {
-            text = "Dismiss"
-            setOnClickListener { finish() }
+        val btnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            addView(Button(this@VoiceCaptureActivity).apply {
+                text = "Dashboard"
+                setOnClickListener {
+                    startActivity(Intent(this@VoiceCaptureActivity, MainActivity::class.java))
+                    finish()
+                }
+            })
+            addView(Button(this@VoiceCaptureActivity).apply {
+                text = "Dismiss"
+                setOnClickListener { finish() }
+            })
         }
 
         val bubbleCard = LinearLayout(this).apply {
@@ -95,7 +106,7 @@ class VoiceCaptureActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             addView(pulseDot)
             addView(levelBar)
             addView(statusView)
-            addView(closeBtn)
+            addView(btnRow)
         }
 
         val backdrop = FrameLayout(this).apply {
