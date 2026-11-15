@@ -300,7 +300,7 @@
     let tailCache = new Map();
     let prevStates = new Map();
     let initialized = false;
-    let autoRead = true;
+    let autoRead = "full";
     let notifyEnabled = localStorage.getItem("rdr_voice_notify") === "1"
       && "Notification" in window
       && Notification.permission === "granted";
@@ -321,8 +321,14 @@
       return p.job_label ? `${base} ${p.job_label}` : base;
     }
 
-    function formatPaneSpeech(p, t) {
+    function formatPaneSpeech(p, t, brief = false) {
       const who = paneSpokenName(p);
+      if (brief) {
+        if (t && t.kind === "question") return `${who} is asking a question.`;
+        if (t && t.kind === "action") return `${who} needs action.`;
+        if (p.state === "working") return `${who} is working.`;
+        return `${who} finished.`;
+      }
       const body = (t && t.spoken) ? ` ${t.spoken}` : "";
       if (t && t.kind === "question") return `${who} is asking a question.${body}`;
       if (t && t.kind === "action") return `${who} needs action.${body}`;
@@ -572,10 +578,10 @@
       renderGrid();
       await refreshTails();
 
-      if ((autoRead || notifyEnabled) && newlyFinished.length > 0) {
+      if ((autoRead !== "silent" || notifyEnabled) && newlyFinished.length > 0) {
         const p = newlyFinished[0];
         const t = await api(`/api/tail?pane=${p.id}&lines=40`);
-        if (autoRead) speak(formatPaneSpeech(p, t));
+        if (autoRead !== "silent") speak(formatPaneSpeech(p, t, autoRead === "brief"));
         if (notifyEnabled) sendBrowserNotification(p, t);
       }
     }
@@ -670,9 +676,10 @@
     document.getElementById("btn-readall").onclick = () => runCommandText("read all");
 
     document.getElementById("btn-autoread").onclick = (e) => {
-      autoRead = !autoRead;
-      e.target.textContent = `Auto-Read: ${autoRead ? "ON" : "OFF"}`;
-      e.target.classList.toggle("on", autoRead);
+      autoRead = autoRead === "full" ? "brief" : autoRead === "brief" ? "silent" : "full";
+      const label = autoRead === "full" ? "Full" : autoRead === "brief" ? "Brief" : "Silent";
+      e.target.textContent = `Auto-Read: ${label}`;
+      e.target.classList.toggle("on", autoRead !== "silent");
     };
 
     const notifyBtn = document.getElementById("btn-notify");

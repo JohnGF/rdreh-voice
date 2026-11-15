@@ -6,7 +6,11 @@ object Prefs {
     private const val NAME = "rdreh_voice_prefs"
     private const val KEY_URL = "server_url"
     private const val KEY_TOKEN = "auth_token"
-    private const val KEY_AUTO_READ = "auto_read"
+    private const val KEY_SPEECH_MODE = "speech_mode"
+
+    const val MODE_FULL = "full"
+    const val MODE_BRIEF = "brief"
+    const val MODE_SILENT = "silent"
 
     fun getUrl(ctx: Context): String =
         ctx.getSharedPreferences(NAME, Context.MODE_PRIVATE)
@@ -18,15 +22,21 @@ object Prefs {
             .getString(KEY_TOKEN, "")!!
             .trim()
 
-    fun getAutoRead(ctx: Context): Boolean =
+    fun getSpeechMode(ctx: Context): String =
         ctx.getSharedPreferences(NAME, Context.MODE_PRIVATE)
-            .getBoolean(KEY_AUTO_READ, true)
+            .getString(KEY_SPEECH_MODE, MODE_FULL)!!
 
-    fun save(ctx: Context, url: String, token: String, autoRead: Boolean) {
+    fun setSpeechMode(ctx: Context, mode: String) {
+        ctx.getSharedPreferences(NAME, Context.MODE_PRIVATE).edit()
+            .putString(KEY_SPEECH_MODE, mode)
+            .apply()
+    }
+
+    fun save(ctx: Context, url: String, token: String, speechMode: String) {
         ctx.getSharedPreferences(NAME, Context.MODE_PRIVATE).edit()
             .putString(KEY_URL, url.trim().trimEnd('/'))
             .putString(KEY_TOKEN, token.trim())
-            .putBoolean(KEY_AUTO_READ, autoRead)
+            .putString(KEY_SPEECH_MODE, speechMode)
             .apply()
     }
 }

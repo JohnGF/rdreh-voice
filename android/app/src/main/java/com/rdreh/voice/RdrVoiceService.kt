@@ -157,9 +157,11 @@ class RdrVoiceService : Service(), TextToSpeech.OnInitListener {
             val kind = tail?.optString("kind", "finished") ?: "finished"
             val title = if (jobLabel.isNotEmpty()) "Agent $agentNum · $jobLabel" else "Agent $agentNum"
 
-            if (Prefs.getAutoRead(this) && ttsReady) {
-                val prefix = if (kind == "question") "$title needs action. " else "$title finished. "
-                tts?.speak(prefix + spoken, TextToSpeech.QUEUE_FLUSH, null, "pane-$paneId")
+            val mode = Prefs.getSpeechMode(this)
+            if (mode != Prefs.MODE_SILENT && ttsReady) {
+                val brief = if (kind == "question") "$title needs action." else "$title finished."
+                val msg = if (mode == Prefs.MODE_BRIEF) brief else "$brief $spoken"
+                tts?.speak(msg, TextToSpeech.QUEUE_FLUSH, null, "pane-$paneId")
             }
             postAlertNotification(paneId, title, spoken)
         }

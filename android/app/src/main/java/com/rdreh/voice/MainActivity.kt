@@ -2,25 +2,38 @@ package com.rdreh.voice
 
 import android.Manifest
 import android.content.Intent
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.speech.tts.TextToSpeech
 import android.widget.Button
-import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.Locale
 import kotlin.concurrent.thread
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var urlInput: EditText
     private lateinit var tokenInput: EditText
-    private lateinit var autoReadCheck: CheckBox
+    private lateinit var speechModeBtn: Button
     private lateinit var statusText: TextView
+    private lateinit var windowsRow: LinearLayout
+    private lateinit var panesContainer: LinearLayout
+
+    private var speechMode: String = Prefs.MODE_FULL
+    private var selectedWindowIndex: Int? = null // null = all windows
+    private var lastState: JSONObject? = null
+    private var tts: TextToSpeech? = null
+    private var ttsReady = false
 
     private val permLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -28,10 +41,12 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        tts = TextToSpeech(this, this)
+        speechMode = Prefs.getSpeechMode(this)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(40, 64, 40, 40)
+            setPadding(36, 56, 36, 36)
         }
 
         val title = TextView(this).apply {
@@ -46,59 +61,130 @@ class MainActivity : AppCompatActivity() {
             hint = "RDR_VOICE_TOKEN (optional)"
             setText(Prefs.getToken(this@MainActivity))
         }
-        autoReadCheck = CheckBox(this).apply {
-            text = "Auto-read finished agents via TTS"
-            isChecked = Prefs.getAutoRead(this@MainActivity)
+        speechModeBtn = Button(this).apply {
+            updateSpeechModeLabel(this)
+            setOnClickListener {
+                speechMode = when (speechMode) {
+                    Prefs.MODE_FULL -> Prefs.MODE_BRIEF
+                    Prefs.MODE_BRIEF -> Prefs.MODE_SILENT
+                    else -> Prefs.MODE_FULL
+                }
+                Prefs.setSpeechMode(this@MainActivity, speechMode)
+                updateSpeechModeLabel(this)
+            }
         }
         statusText = TextView(this).apply {
             text = "Service: ${if (RdrVoiceService.isRunning.get()) "running" else "stopped"}"
-            setPadding(0, 20, 0, 20)
+            setPadding(0, 12, 0, 12)
         }
 
-        val saveBtn = Button(this).apply {
-            text = "Save & Test Connection"
-            setOnClickListener {
-                Prefs.save(
-                    this@MainActivity,
-                    urlInput.text.toString(),
-                    tokenInput.text.toString(),
-                    autoReadCheck.isChecked,
-                )
-                testConnection()
+        val controlsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            val saveBtn = Button(this@MainActivity).apply {
+                text = "Save & Refresh"
+                setOnClickListener {
+                    Prefs.save(
+                        this@MainActivity,
+                        urlInput.text.toString(),
+                        tokenInput.text.toString(),
+                        speechMode,
+                    )
+                    refreshPanes()
+                }
             }
-        }
-        val serviceBtn = Button(this).apply {
-            text = "Start / Restart Monitor Service"
-            setOnClickListener {
-                Prefs.save(
-                    this@MainActivity,
-                    urlInput.text.toString(),
-                    tokenInput.text.toString(),
-                    autoReadCheck.isChecked,
-                )
-                val svc = Intent(this@MainActivity, RdrVoiceService::class.java)
-                ContextCompat.startForegroundService(this@MainActivity, svc)
-                statusText.text = "Monitor service started."
+            val serviceBtn = Button(this@MainActivity).apply {
+                text = "Start Monitor"
+                setOnClickListener {
+                    Prefs.save(
+                        this@MainActivity,
+                        urlInput.text.toString(),
+                        tokenInput.text.toString(),
+                        speechMode,
+                    )
+                    val svc = Intent(this@MainActivity, RdrVoiceService::class.java)
+                    ContextCompat.startForegroundService(this@MainActivity, svc)
+                    statusText.text = "Monitor service started."
+                }
             }
-        }
-        val speakBtn = Button(this).apply {
-            text = "Speak Voice Command"
-            setOnClickListener {
-                startActivity(Intent(this@MainActivity, VoiceCaptureActivity::class.java))
-            }
-        }
-        val assistantBtn = Button(this).apply {
-            text = "Default Assistant Settings"
-            setOnClickListener {
-                startActivity(Intent(Settings.ACTION_VOICE_INPUT_SETTINGS))
-            }
+            addView(saveBtn)
+            addView(serviceBtn)
         }
 
-        listOf(title, urlInput, tokenInput, autoReadCheck, saveBtn, serviceBtn, speakBtn, assistantBtn, statusText)
-            .forEach { root.addView(it) }
+        val actionRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            val speakBtn = Button(this@MainActivity).apply {
+                text = "Speak"
+                setOnClickListener {
+                    startActivity(Intent(this@MainActivity, VoiceCaptureActivity::class.java))
+                }
+            }
+            val assistantBtn = Button(this@MainActivity).apply {
+                text = "Assistant Settings"
+                setOnClickListener {
+                    startActivity(Intent(Settings.ACTION_VOICE_INPUT_SETTINGS))
+                }
+            }
+            addView(speakBtn)
+            addView(assistantBtn)
+        }
+
+        val winHeader = TextView(this).apply {
+            text = "Windows"
+            textSize = 16f
+            setPadding(0, 20, 0, 8)
+        }
+        windowsRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val windowsScroll = HorizontalScrollView(this).apply { addView(windowsRow) }
+
+        val panesHeader = TextView(this).apply {
+            text = "Panes"
+            textSize = 16f
+            setPadding(0, 20, 0, 8)
+        }
+        panesContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+
+        listOf(
+            title,
+            urlInput,
+            tokenInput,
+            speechModeBtn,
+            controlsRow,
+            actionRow,
+            statusText,
+            winHeader,
+            windowsScroll,
+            panesHeader,
+            panesContainer,
+        ).forEach { root.addView(it) }
 
         setContentView(ScrollView(this).apply { addView(root) })
         requestRuntimePermissions()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refreshPanes()
+    }
+
+    override fun onDestroy() {
+        tts?.shutdown()
+        super.onDestroy()
+    }
+
+    override fun onInit(status: Int) {
+        if (status == TextToSpeech.SUCCESS) {
+            tts?.language = Locale.US
+            tts?.setSpeechRate(1.08f)
+            ttsReady = true
+        }
+    }
+
+    private fun updateSpeechModeLabel(btn: Button) {
+        btn.text = when (speechMode) {
+            Prefs.MODE_BRIEF -> "Alerts: Brief (finish only)"
+            Prefs.MODE_SILENT -> "Alerts: Silent (no TTS)"
+            else -> "Alerts: Full (read output)"
+        }
     }
 
     private fun requestRuntimePermissions() {
@@ -112,24 +198,164 @@ class MainActivity : AppCompatActivity() {
         permLauncher.launch(perms.toTypedArray())
     }
 
-    private fun testConnection() {
+    private fun refreshPanes() {
         val url = Prefs.getUrl(this)
         val token = Prefs.getToken(this)
-        statusText.text = "Testing $url..."
         thread {
-            val msg = runCatching {
-                val res = RdrApiClient.getJson(url, token, "/api/panes")
-                if (res.optBoolean("ok", false)) {
-                    val c = res.optJSONObject("counts")
-                    val total = c?.optInt("total", 0) ?: 0
-                    val busy = c?.optInt("busy", 0) ?: 0
-                    val done = c?.optInt("finished", 0) ?: 0
-                    "Connected: $total agents ($busy working, $done done)"
-                } else {
-                    "Error: ${res.optString("error", "unknown")}"
+            val res = runCatching { RdrApiClient.getJson(url, token, "/api/panes") }
+                .getOrElse { JSONObject().put("ok", false).put("error", it.message ?: "Failed") }
+            runOnUiThread {
+                if (!res.optBoolean("ok", false)) {
+                    statusText.text = "Error: ${res.optString("error", "offline")}"
+                    return@runOnUiThread
                 }
-            }.getOrElse { "Failed: ${it.message}" }
-            runOnUiThread { statusText.text = msg }
+                lastState = res
+                val c = res.optJSONObject("counts")
+                val total = c?.optInt("total", 0) ?: 0
+                val busy = c?.optInt("busy", 0) ?: 0
+                val done = c?.optInt("finished", 0) ?: 0
+                statusText.text = "Connected: $total agents ($busy working, $done done)"
+                renderDashboard(res)
+            }
+        }
+    }
+
+    private fun renderDashboard(state: JSONObject) {
+        windowsRow.removeAllViews()
+        panesContainer.removeAllViews()
+
+        val workspaces = state.optJSONArray("workspaces") ?: JSONArray()
+        val panes = state.optJSONArray("panes") ?: JSONArray()
+        val paneById = mutableMapOf<Int, JSONObject>()
+        for (i in 0 until panes.length()) {
+            val p = panes.getJSONObject(i)
+            paneById[p.optInt("id")] = p
+        }
+
+        val allBtn = Button(this).apply {
+            text = "All (${panes.length()})"
+            alpha = if (selectedWindowIndex == null) 1.0f else 0.6f
+            setOnClickListener {
+                selectedWindowIndex = null
+                lastState?.let(::renderDashboard)
+            }
+        }
+        windowsRow.addView(allBtn)
+
+        for (i in 0 until workspaces.length()) {
+            val ws = workspaces.getJSONObject(i)
+            val idx = ws.optInt("index")
+            val name = ws.optString("name", "win $idx")
+            val wsPaneIds = ws.optJSONArray("panes") ?: JSONArray()
+            var busyCount = 0
+            for (j in 0 until wsPaneIds.length()) {
+                if (paneById[wsPaneIds.optInt(j)]?.optString("state") == "working") busyCount++
+            }
+            val badge = if (busyCount > 0) "$busyCount busy" else "${wsPaneIds.length()} idle"
+            val btn = Button(this).apply {
+                text = "$idx: $name ($badge)"
+                alpha = if (selectedWindowIndex == idx) 1.0f else 0.65f
+                setOnClickListener {
+                    selectedWindowIndex = idx
+                    lastState?.let(::renderDashboard)
+                }
+            }
+            windowsRow.addView(btn)
+        }
+
+        for (i in 0 until workspaces.length()) {
+            val ws = workspaces.getJSONObject(i)
+            val idx = ws.optInt("index")
+            if (selectedWindowIndex != null && selectedWindowIndex != idx) continue
+            val name = ws.optString("name", "window $idx")
+            val wsPaneIds = ws.optJSONArray("panes") ?: JSONArray()
+            if (wsPaneIds.length() == 0) continue
+
+            val groupHeader = TextView(this).apply {
+                text = "Window $idx · $name"
+                textSize = 15f
+                setTextColor(Color.parseColor("#93C5FD"))
+                setPadding(0, 16, 0, 6)
+            }
+            panesContainer.addView(groupHeader)
+
+            for (j in 0 until wsPaneIds.length()) {
+                val p = paneById[wsPaneIds.optInt(j)] ?: continue
+                panesContainer.addView(buildPaneCard(p))
+            }
+        }
+    }
+
+    private fun buildPaneCard(p: JSONObject): LinearLayout {
+        val paneId = p.optInt("id")
+        val isAgent = p.optBoolean("agent", false)
+        val agentNum = if (p.has("agent_num") && !p.isNull("agent_num")) p.optInt("agent_num") else null
+        val state = p.optString("state", "idle")
+        val job = p.optString("job_label", "").ifEmpty { p.optString("title", "pane $paneId") }
+        val label = if (isAgent && agentNum != null) "Agent $agentNum · $job" else "Pane $paneId · $job"
+
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24, 18, 24, 18)
+            setBackgroundColor(Color.parseColor("#1E293B"))
+
+            val header = TextView(this@MainActivity).apply {
+                text = "$label  [${state.uppercase()}]"
+                textSize = 14f
+                setTextColor(
+                    if (state == "working") Color.parseColor("#FBBF24") else Color.parseColor("#86EFAC")
+                )
+            }
+            val btns = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                addView(Button(this@MainActivity).apply {
+                    text = "Read"
+                    setOnClickListener { readPane(paneId, label) }
+                })
+                addView(Button(this@MainActivity).apply {
+                    text = "Yes"
+                    setOnClickListener { quickSend(paneId, "y") }
+                })
+                addView(Button(this@MainActivity).apply {
+                    text = "No"
+                    setOnClickListener { quickSend(paneId, "n") }
+                })
+            }
+            addView(header)
+            addView(btns)
+        }
+    }
+
+    private fun readPane(paneId: Int, label: String) {
+        val url = Prefs.getUrl(this)
+        val token = Prefs.getToken(this)
+        thread {
+            val tail = runCatching { RdrApiClient.getJson(url, token, "/api/tail?pane=$paneId&lines=40") }
+                .getOrNull()
+            val spoken = tail?.optString("spoken", "")?.ifEmpty { "No output." } ?: "Failed to read."
+            runOnUiThread {
+                statusText.text = "$label: $spoken"
+                if (ttsReady && speechMode != Prefs.MODE_SILENT) {
+                    val msg = if (speechMode == Prefs.MODE_BRIEF) "$label." else "$label. $spoken"
+                    tts?.speak(msg, TextToSpeech.QUEUE_FLUSH, null, "manual-$paneId")
+                }
+            }
+        }
+    }
+
+    private fun quickSend(paneId: Int, text: String) {
+        val url = Prefs.getUrl(this)
+        val token = Prefs.getToken(this)
+        thread {
+            runCatching {
+                RdrApiClient.postJson(
+                    url,
+                    token,
+                    "/api/send",
+                    JSONObject().put("pane", paneId).put("text", text).put("enter", true),
+                )
+            }
+            runOnUiThread { refreshPanes() }
         }
     }
 }
