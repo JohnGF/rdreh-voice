@@ -430,6 +430,73 @@ Which approach do you prefer?
                 self.assertIn("Agent 1", r5["spoken"])
                 mock_tail.assert_called_with("rdr", None, 9, 40)
 
+    def test_confidence_gate_and_nbest_alternatives(self) -> None:
+        fake_state = {
+            "ok": True,
+            "panes": [
+                {
+                    "id": 9,
+                    "workspace_index": 1,
+                    "pane_index": 0,
+                    "agent_num": 1,
+                    "agent": True,
+                    "state": "idle",
+                    "focused": True,
+                    "cwd": "/home/john/git/rdreh",
+                    "job_label": "rdreh",
+                },
+                {
+                    "id": 11,
+                    "workspace_index": 1,
+                    "pane_index": 2,
+                    "agent_num": 3,
+                    "agent": True,
+                    "state": "idle",
+                    "focused": False,
+                    "cwd": "/home/john/git/rdreh",
+                    "job_label": "rdreh",
+                },
+            ],
+            "workspaces": [{"index": 1, "name": "agents", "active": True, "panes": [9, 11]}],
+            "counts": {"total": 2, "busy": 0, "finished": 2},
+        }
+        with patch.object(server, "fetch_panes", return_value=fake_state):
+            with patch.object(server, "send_to_pane") as mock_send:
+                low = server.parse_and_execute_command(
+                    "rdr", None, "agent 3 check logs", None, confidence=0.48
+                )
+                self.assertFalse(low["ok"])
+                self.assertEqual(low["action"], "confirm")
+                self.assertEqual(low["pending_transcript"], "agent 3 check logs")
+                self.assertIn("Say yes to send", low["spoken"])
+                mock_send.assert_not_called()
+
+                confirmed = server.parse_and_execute_command(
+                    "rdr", None, "agent 3 check logs", None, confidence=0.48, confirmed=True
+                )
+                self.assertTrue(confirmed["ok"])
+                self.assertEqual(confirmed["pane"], 11)
+                mock_send.assert_called_with("rdr", None, 11, "check logs", True)
+
+                need_tgt = server.parse_and_execute_command(
+                    "rdr", None, "check the logs please", None, confidence=0.92
+                )
+                self.assertFalse(need_tgt["ok"])
+                self.assertEqual(need_tgt["action"], "need_target")
+                self.assertIn("Say which agent first", need_tgt["spoken"])
+
+                alt = server.parse_and_execute_command(
+                    "rdr",
+                    None,
+                    "Asian free check logs",
+                    9,
+                    confidence=0.88,
+                    alternatives=["Asian free check logs", "agent 3 check logs"],
+                )
+                self.assertTrue(alt["ok"])
+                self.assertEqual(alt["pane"], 11)
+                mock_send.assert_called_with("rdr", None, 11, "check logs", True)
+
 
 if __name__ == "__main__":
     unittest.main()

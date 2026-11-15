@@ -22,6 +22,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
 import kotlin.concurrent.thread
@@ -35,6 +36,7 @@ class VoiceCaptureActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var tts: TextToSpeech? = null
     private var ttsReady = false
     private var autoContinue = true
+    private var pendingTranscript: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -230,16 +232,42 @@ class VoiceCaptureActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 override fun onResults(results: Bundle) {
                     stopPulseAnimation("#38BDF8")
                     BluetoothAudioHelper.disableBluetoothMic(this@VoiceCaptureActivity)
-                    val text = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                        ?.firstOrNull()
-                        ?.trim()
+                    val matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                        ?.map { it.trim() }
+                        ?.filter { it.isNotEmpty() }
                         .orEmpty()
+                    val text = matches.firstOrNull().orEmpty()
                     if (text.isEmpty()) {
                         statusView.text = "Nothing heard."
                         return
                     }
-                    statusView.text = "Heard: $text"
-                    dispatchCommand(text)
+                    val pending = pendingTranscript
+                    if (pending != null) {
+                        val reply = text.lowercase().trimEnd('.', '!', '?')
+                        if (reply in setOf("yes", "yep", "yeah", "confirm", "ok", "okay", "send", "send it")) {
+                            pendingTranscript = null
+                            statusView.text = "Confirmed: $pending"
+                            dispatchCommand(pending, confirmed = true)
+                            return
+                        }
+                        if (reply in setOf("no", "nope", "cancel", "stop", "never mind", "nevermind")) {
+                            pendingTranscript = null
+                            statusView.text = "Cancelled."
+                            if (ttsReady) {
+                                tts?.speak("Cancelled.", TextToSpeech.QUEUE_FLUSH, null, "cmd-reply")
+                            }
+                            return
+                        }
+                        pendingTranscript = null
+                    }
+                    val scores = results.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES)
+                    val confidence = scores?.firstOrNull()?.takeIf { it >= 0f }
+                    val confLabel = confidence?.let {
+                        val pct = (it * 100).toInt()
+                        if (it < 0.65f) " ($pct% low)" else " ($pct%)"
+                    }.orEmpty()
+                    statusView.text = "Heard$confLabel: $text"
+                    dispatchCommand(text, confidence, matches.take(5))
                 }
 
                 override fun onPartialResults(partialResults: Bundle?) {
@@ -258,6 +286,7 @@ class VoiceCaptureActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-US")
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2500L)
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 2000L)
@@ -265,21 +294,42 @@ class VoiceCaptureActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         recognizer?.startListening(intent)
     }
 
-    private fun dispatchCommand(transcript: String) {
+    private fun dispatchCommand(
+        transcript: String,
+        confidence: Float? = null,
+        alternatives: List<String> = emptyList(),
+        confirmed: Boolean = false,
+    ) {
         val url = Prefs.getUrl(this)
         val token = Prefs.getToken(this)
+        val payload = JSONObject()
+            .put("transcript", transcript)
+            .put("view_mode", "agents")
+        if (confidence != null) {
+            payload.put("confidence", confidence.toDouble())
+        }
+        if (alternatives.isNotEmpty()) {
+            payload.put("alternatives", JSONArray(alternatives))
+        }
+        if (confirmed) {
+            payload.put("confirmed", true)
+        }
         thread {
             val res = runCatching {
                 RdrApiClient.postJson(
                     url,
                     token,
                     "/api/command",
-                    JSONObject().put("transcript", transcript).put("view_mode", "agents"),
+                    payload,
                 )
             }.getOrElse { JSONObject().put("error", it.message ?: "Request failed") }
 
+            val action = res.optString("action", "")
             val spoken = res.optString("spoken", "").ifEmpty { res.optString("error", "Done.") }
             runOnUiThread {
+                if (action == "confirm") {
+                    pendingTranscript = res.optString("pending_transcript").ifEmpty { transcript }
+                }
                 statusView.text = spoken
                 if (ttsReady) {
                     tts?.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, "cmd-reply")

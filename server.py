@@ -636,6 +636,23 @@ def summarize_tokens(rdr_bin: str) -> str:
     return "Token telemetry is available, but no summary count was found."
 
 
+MIN_SPEECH_CONFIDENCE = 0.65
+
+
+def _select_best_transcript(transcript: str, alternatives: list[str] | None) -> str:
+    """Prefer an N-best alternative that explicitly names an agent/pane when the top result does not."""
+    if not alternatives:
+        return transcript
+    explicit_re = re.compile(r"\b(?:agent|pane)\s+\d+\b", re.IGNORECASE)
+    if explicit_re.search(normalize_spoken_targets(transcript)):
+        return transcript
+    for alt in alternatives:
+        cand = alt.strip()
+        if cand and explicit_re.search(normalize_spoken_targets(cand)):
+            return cand
+    return transcript
+
+
 def parse_and_execute_command(
     rdr_bin: str,
     session: str | None,
@@ -644,8 +661,12 @@ def parse_and_execute_command(
     *,
     active_workspace: int | None = None,
     view_mode: str = "agents",
+    confidence: float | None = None,
+    alternatives: list[str] | None = None,
+    confirmed: bool = False,
 ) -> dict[str, Any]:
-    raw = normalize_spoken_targets(transcript.strip())
+    chosen = _select_best_transcript(transcript, alternatives)
+    raw = normalize_spoken_targets(chosen.strip())
     # Strip optional leading wake keyword ("ok rdr", "hey rdr", "rdr", "r d r", "rdreh", "radar")
     raw = re.sub(
         r"^(?:(?:ok|okay|hey)\s+)?(?:r\s*\.?\s*d\s*\.?\s*r\s*\.?|rdreh|radar)\s*[:,]?\s+",
@@ -655,6 +676,17 @@ def parse_and_execute_command(
     ).strip()
     if not raw:
         return {"ok": False, "error": "Empty command", "spoken": "Nothing heard."}
+
+    if not confirmed and confidence is not None and 0.0 <= confidence < MIN_SPEECH_CONFIDENCE:
+        cleaned = chosen.strip()
+        return {
+            "ok": False,
+            "action": "confirm",
+            "confidence": confidence,
+            "transcript": cleaned,
+            "pending_transcript": cleaned,
+            "spoken": f"Did you say: {cleaned}? Say yes to send, or no to cancel.",
+        }
 
     state = fetch_panes(rdr_bin, session)
     panes = state["panes"]
@@ -1063,12 +1095,15 @@ def parse_and_execute_command(
             "spoken": f"Sent to {noun} {lnum}.",
         }
 
-    # Fallback: send raw transcript to default_pane (by exact pane id) or focused pane
-    target = (
-        next((p for p in panes if p["id"] == default_pane), None)
-        if default_pane is not None
-        else resolve_target_pane(panes, None, view_mode=view_mode, active_workspace=active_workspace)
-    )
+    # Fallback: send raw transcript to default_pane if explicitly known; otherwise require an agent prefix
+    if default_pane is None:
+        return {
+            "ok": False,
+            "action": "need_target",
+            "transcript": scoped_raw,
+            "spoken": "Say which agent first, like agent 1 or agent 2.",
+        }
+    target = next((p for p in panes if p["id"] == default_pane), None)
     if not target:
         return {"ok": False, "error": "No target pane available", "spoken": "No pane found."}
     send_to_pane(rdr_bin, session, target["id"], scoped_raw, True)
@@ -1242,6 +1277,11 @@ def make_handler(rdr_bin: str, session: str | None, token: str | None) -> type[B
                     active_ws = body.get("active_workspace")
                     active_ws_idx = int(active_ws) if active_ws is not None else None
                     view_mode = str(body.get("view_mode") or "agents")
+                    raw_conf = body.get("confidence")
+                    conf = float(raw_conf) if isinstance(raw_conf, (int, float)) else None
+                    raw_alts = body.get("alternatives")
+                    alts = [str(a) for a in raw_alts] if isinstance(raw_alts, list) else None
+                    confirmed = bool(body.get("confirmed", False))
                     res = parse_and_execute_command(
                         rdr_bin,
                         session,
@@ -1249,9 +1289,13 @@ def make_handler(rdr_bin: str, session: str | None, token: str | None) -> type[B
                         default_num,
                         active_workspace=active_ws_idx,
                         view_mode=view_mode,
+                        confidence=conf,
+                        alternatives=alts,
+                        confirmed=confirmed,
                     )
+                    conf_str = f"{conf:.2f}" if conf is not None else "n/a"
                     print(
-                        f"[cmd] ok={res.get('ok')} action={res.get('action')} pane={res.get('pane')} text={transcript!r}",
+                        f"[cmd] ok={res.get('ok')} action={res.get('action')} pane={res.get('pane')} conf={conf_str} text={transcript!r}",
                         flush=True,
                     )
                     self._send_json(HTTPStatus.OK if res.get("ok") else HTTPStatus.BAD_REQUEST, res)
