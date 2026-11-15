@@ -32,7 +32,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var panesContainer: LinearLayout
 
     private var speechMode: String = Prefs.MODE_FULL
-    private var selectedWindowIndex: Int? = null // null = all windows
+    private var selectedWindowIndex: Int? = -1 // -1 = Agents only (default), null = All windows
     private var lastState: JSONObject? = null
     private var tts: TextToSpeech? = null
     private var ttsReady = false
@@ -243,6 +243,17 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             paneById[p.optInt("id")] = p
         }
 
+        val agentsOnlyBtn = Button(this).apply {
+            val agentCount = (0 until panes.length()).count { panes.getJSONObject(it).optBoolean("agent", false) }
+            text = "Agents ($agentCount)"
+            alpha = if (selectedWindowIndex == -1) 1.0f else 0.6f
+            setOnClickListener {
+                selectedWindowIndex = -1
+                lastState?.let(::renderDashboard)
+            }
+        }
+        windowsRow.addView(agentsOnlyBtn)
+
         val allBtn = Button(this).apply {
             text = "All (${panes.length()})"
             alpha = if (selectedWindowIndex == null) 1.0f else 0.6f
@@ -273,6 +284,23 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 }
             }
             windowsRow.addView(btn)
+        }
+
+        if (selectedWindowIndex == -1) {
+            var shown = 0
+            for (i in 0 until panes.length()) {
+                val p = panes.getJSONObject(i)
+                if (!p.optBoolean("agent", false)) continue
+                panesContainer.addView(buildPaneCard(p))
+                shown++
+            }
+            if (shown == 0) {
+                panesContainer.addView(TextView(this).apply {
+                    text = "No active agents detected."
+                    setPadding(0, 16, 0, 16)
+                })
+            }
+            return
         }
 
         for (i in 0 until workspaces.length()) {
