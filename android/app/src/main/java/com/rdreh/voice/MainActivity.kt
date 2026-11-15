@@ -246,12 +246,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             val ws = workspaces.getJSONObject(i)
             val idx = ws.optInt("index")
             val name = ws.optString("name", "win $idx")
-            val wsPaneIds = ws.optJSONArray("panes") ?: JSONArray()
+            val wsPanes = ws.optJSONArray("panes") ?: JSONArray()
             var busyCount = 0
-            for (j in 0 until wsPaneIds.length()) {
-                if (paneById[wsPaneIds.optInt(j)]?.optString("state") == "working") busyCount++
+            for (j in 0 until wsPanes.length()) {
+                val pObj = wsPanes.optJSONObject(j) ?: paneById[wsPanes.optInt(j)]
+                if (pObj?.optString("state") == "working") busyCount++
             }
-            val badge = if (busyCount > 0) "$busyCount busy" else "${wsPaneIds.length()} idle"
+            val badge = if (busyCount > 0) "$busyCount busy" else "${wsPanes.length()} idle"
             val btn = Button(this).apply {
                 text = "$idx: $name ($badge)"
                 alpha = if (selectedWindowIndex == idx) 1.0f else 0.65f
@@ -268,8 +269,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             val idx = ws.optInt("index")
             if (selectedWindowIndex != null && selectedWindowIndex != idx) continue
             val name = ws.optString("name", "window $idx")
-            val wsPaneIds = ws.optJSONArray("panes") ?: JSONArray()
-            if (wsPaneIds.length() == 0) continue
+            val wsPanes = ws.optJSONArray("panes") ?: JSONArray()
+            if (wsPanes.length() == 0) continue
 
             val groupHeader = TextView(this).apply {
                 text = "Window $idx · $name"
@@ -279,8 +280,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
             panesContainer.addView(groupHeader)
 
-            for (j in 0 until wsPaneIds.length()) {
-                val p = paneById[wsPaneIds.optInt(j)] ?: continue
+            for (j in 0 until wsPanes.length()) {
+                val p = wsPanes.optJSONObject(j) ?: paneById[wsPanes.optInt(j)] ?: continue
                 panesContainer.addView(buildPaneCard(p))
             }
         }
