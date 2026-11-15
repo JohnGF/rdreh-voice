@@ -30,10 +30,8 @@
         <activity
             android:name=".VoiceCaptureActivity"
             android:exported="true"
-            android:excludeFromRecents="true"
             android:label="rdreh-voice"
-            android:launchMode="singleInstance"
-            android:taskAffinity=""
+            android:launchMode="singleTop"
             android:theme="@style/Theme.RdrVoiceOverlay">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
