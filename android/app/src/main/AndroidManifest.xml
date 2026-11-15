@@ -35,8 +35,13 @@
         <activity
             android:name=".VoiceCaptureActivity"
             android:exported="true"
+            android:label="rdreh Listen"
             android:launchMode="singleTop"
             android:theme="@style/Theme.AppCompat.DayNight.Dialog">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.ASSIST" />
                 <category android:name="android.intent.category.DEFAULT" />
