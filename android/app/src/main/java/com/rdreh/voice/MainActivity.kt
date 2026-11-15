@@ -50,6 +50,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var selectedWindowIndex: Int? = -1 // -1 = Agents only (default), null = All windows
     private var lastState: JSONObject? = null
     private var lastTails: JSONObject = JSONObject()
+    private val dismissedPromptFingerprints = mutableMapOf<Int, String>()
     private var tts: TextToSpeech? = null
     private var ttsReady = false
 
@@ -414,7 +415,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     setTextIsSelectable(true)
                 })
             }
-            if (question.isNotEmpty() && question != fullMsg) {
+            val promptFingerprint = "$question\n${options?.toString().orEmpty()}"
+            val hasPrompt = question.isNotEmpty() || (options != null && options.length() > 0)
+            if (!hasPrompt) {
+                dismissedPromptFingerprints.remove(paneId)
+            }
+            val isDismissed = hasPrompt && dismissedPromptFingerprints[paneId] == promptFingerprint
+            if (!isDismissed && question.isNotEmpty() && question != fullMsg) {
                 addView(TextView(this@MainActivity).apply {
                     text = question
                     textSize = 13f
@@ -422,7 +429,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     setPadding(0, 8, 0, 6)
                 })
             }
-            if (options != null && options.length() > 0) {
+            if (!isDismissed && options != null && options.length() > 0) {
                 for (k in 0 until options.length()) {
                     val opt = options.optJSONObject(k) ?: continue
                     val num = opt.optInt("num")
@@ -432,6 +439,16 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                         setOnClickListener { quickSend(paneId, num.toString()) }
                     })
                 }
+            }
+            if (!isDismissed && hasPrompt) {
+                addView(Button(this@MainActivity).apply {
+                    text = if (options != null && options.length() > 0) "Dismiss Options" else "Dismiss"
+                    textSize = 11f
+                    setOnClickListener {
+                        dismissedPromptFingerprints[paneId] = promptFingerprint
+                        lastState?.let(::renderDashboard)
+                    }
+                })
             }
 
             val btns = LinearLayout(this@MainActivity).apply {

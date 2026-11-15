@@ -75,6 +75,10 @@ ACTION_PROMPT_RE = re.compile(
 )
 
 NUMBERED_OPT_RE = re.compile(r"^\s*(?:[❯›▸▹►•\-*]\s*)?(\d{1,2})[.)]\s+(.+)$")
+OPTION_CURSOR_RE = re.compile(r"^\s*[❯›▸▹►]\s*\d{1,2}[.)]\s+")
+OPTION_CTX_RE = re.compile(
+    r"(?i)\b(?:choose|select|pick|prefer|reply|enter\s+(?:a\s+)?number|which\s+(?:one|option|approach))\b"
+)
 PROMPT_INPUT_RE = re.compile(r"^\s*[❯›$%#]\s*(.*)$")
 LEADING_SYMBOL_RE = re.compile(r"^[\s●○◉◎◆◇▪▫▸▹►◄▲▼❯›»«✓✔✗✘⚠⚡✻✽✶✳✢⏵⏸⏹⏎←→↑↓↔↕↩↪·•‣⁃⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏\-*]+")
 
@@ -185,6 +189,15 @@ def _extract_options(lines: list[str]) -> tuple[str, list[dict[str, Any]]] | Non
     ctx_start = max(0, first_opt - 3)
     ctx_lines = [LEADING_SYMBOL_RE.sub("", ln).strip() for ln in lines[ctx_start:first_opt]]
     ctx_lines = [c for c in ctx_lines if c]
+    ctx_text = " ".join(ctx_lines)
+    has_cursor = any(OPTION_CURSOR_RE.match(lines[i]) for i in last_group)
+    is_prompt_ctx = (
+        "?" in ctx_text
+        or bool(ACTION_PROMPT_RE.search(ctx_text))
+        or bool(OPTION_CTX_RE.search(ctx_text))
+    )
+    if not (has_cursor or is_prompt_ctx):
+        return None
     options: list[dict[str, Any]] = []
     for i in range(first_opt, last_group[-1] + 1):
         m = NUMBERED_OPT_RE.match(lines[i])
@@ -192,7 +205,7 @@ def _extract_options(lines: list[str]) -> tuple[str, list[dict[str, Any]]] | Non
             options.append({"num": int(m.group(1)), "label": m.group(2).strip()})
     if len(options) < 2:
         return None
-    return " ".join(ctx_lines), options
+    return ctx_text, options
 
 
 def _format_options_block(lines: list[str]) -> tuple[str, int] | None:

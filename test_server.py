@@ -554,6 +554,18 @@ Which approach do you prefer?
                 self.assertTrue(rd["ok"])
                 self.assertEqual(rd["action"], "read")
 
+    def test_numbered_summary_not_treated_as_options(self) -> None:
+        raw = (
+            "### Practical path\n\n"
+            "1. Now: Keep it on GitHub and use your LAN OTA updater.\n"
+            "2. Optional free store: F-Droid is free for self-hosting users.\n"
+            "3. Play Store later: Only worth doing for broad public discovery.\n"
+        )
+        res = analyze_for_tts(raw)
+        self.assertEqual(res["kind"], "finished")
+        self.assertEqual(res["options"], [])
+        self.assertEqual(res["question"], "")
+
 
 if __name__ == "__main__":
     unittest.main()
