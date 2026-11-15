@@ -74,6 +74,10 @@ class VoiceCaptureActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_HORIZONTAL
             addView(Button(this@VoiceCaptureActivity).apply {
+                text = "Listen"
+                setOnClickListener { restartListening() }
+            })
+            addView(Button(this@VoiceCaptureActivity).apply {
                 text = "Dashboard"
                 setOnClickListener {
                     startActivity(Intent(this@VoiceCaptureActivity, MainActivity::class.java))
@@ -146,20 +150,15 @@ class VoiceCaptureActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         if (status == TextToSpeech.SUCCESS) {
             tts?.language = Locale.US
             tts?.setSpeechRate(1.08f)
-            tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                override fun onStart(utteranceId: String?) {}
-                override fun onDone(utteranceId: String?) {
-                    runOnUiThread {
-                        statusView.postDelayed({ if (!isFinishing) finish() }, 900)
-                    }
-                }
-                @Deprecated("Deprecated in Java")
-                override fun onError(utteranceId: String?) {
-                    runOnUiThread { finish() }
-                }
-            })
             ttsReady = true
         }
+    }
+
+    private fun restartListening() {
+        recognizer?.destroy()
+        recognizer = null
+        startPulseAnimation()
+        startListening()
     }
 
     private fun startListening() {
@@ -224,6 +223,8 @@ class VoiceCaptureActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-US")
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2500L)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 2000L)
         }
         recognizer?.startListening(intent)
     }
