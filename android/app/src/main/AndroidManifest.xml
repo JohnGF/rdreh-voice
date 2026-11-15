@@ -35,9 +35,11 @@
         <activity
             android:name=".VoiceCaptureActivity"
             android:exported="true"
+            android:excludeFromRecents="true"
             android:label="rdreh Listen"
-            android:launchMode="singleTop"
-            android:theme="@style/Theme.AppCompat.DayNight.Dialog">
+            android:launchMode="singleInstance"
+            android:taskAffinity=""
+            android:theme="@style/Theme.RdrVoiceOverlay">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

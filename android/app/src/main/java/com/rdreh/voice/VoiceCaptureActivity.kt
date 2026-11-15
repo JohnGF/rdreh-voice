@@ -12,9 +12,12 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.view.Gravity
 import android.view.View
+import android.view.WindowManager
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
@@ -34,15 +37,16 @@ class VoiceCaptureActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
 
         pulseDot = View(this).apply {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(Color.parseColor("#38BDF8"))
             }
-            layoutParams = LinearLayout.LayoutParams(48, 48).apply {
+            layoutParams = LinearLayout.LayoutParams(42, 42).apply {
                 gravity = Gravity.CENTER_HORIZONTAL
-                bottomMargin = 20
+                bottomMargin = 16
             }
         }
 
@@ -51,35 +55,55 @@ class VoiceCaptureActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 cornerRadius = 12f
                 setColor(Color.parseColor("#22C55E"))
             }
-            layoutParams = LinearLayout.LayoutParams(240, 14).apply {
+            layoutParams = LinearLayout.LayoutParams(220, 12).apply {
                 gravity = Gravity.CENTER_HORIZONTAL
-                bottomMargin = 24
+                bottomMargin = 20
             }
             scaleX = 0.2f
         }
 
         statusView = TextView(this).apply {
             text = "Starting mic..."
-            textSize = 18f
+            textSize = 17f
+            setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
-            setPadding(24, 8, 24, 24)
+            setPadding(16, 4, 16, 20)
         }
 
         val closeBtn = Button(this).apply {
-            text = "Close"
+            text = "Dismiss"
             setOnClickListener { finish() }
         }
 
-        val root = LinearLayout(this).apply {
+        val bubbleCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(48, 48, 48, 36)
+            setPadding(44, 36, 44, 32)
+            background = GradientDrawable().apply {
+                cornerRadius = 48f
+                setColor(Color.parseColor("#E60F172A"))
+                setStroke(2, Color.parseColor("#334155"))
+            }
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM,
+            ).apply {
+                setMargins(32, 32, 32, 96)
+            }
+            setOnClickListener { /* keep clicks inside bubble */ }
             addView(pulseDot)
             addView(levelBar)
             addView(statusView)
             addView(closeBtn)
         }
-        setContentView(root)
+
+        val backdrop = FrameLayout(this).apply {
+            setBackgroundColor(Color.TRANSPARENT)
+            setOnClickListener { finish() }
+            addView(bubbleCard)
+        }
+        setContentView(backdrop)
 
         tts = TextToSpeech(this, this)
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
@@ -111,6 +135,18 @@ class VoiceCaptureActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         if (status == TextToSpeech.SUCCESS) {
             tts?.language = Locale.US
             tts?.setSpeechRate(1.08f)
+            tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                override fun onStart(utteranceId: String?) {}
+                override fun onDone(utteranceId: String?) {
+                    runOnUiThread {
+                        statusView.postDelayed({ if (!isFinishing) finish() }, 900)
+                    }
+                }
+                @Deprecated("Deprecated in Java")
+                override fun onError(utteranceId: String?) {
+                    runOnUiThread { finish() }
+                }
+            })
             ttsReady = true
         }
     }
