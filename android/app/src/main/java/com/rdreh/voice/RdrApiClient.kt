@@ -2,6 +2,7 @@ package com.rdreh.voice
 
 import org.json.JSONObject
 import java.io.BufferedReader
+import java.io.File
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
@@ -75,6 +76,26 @@ object RdrApiClient {
             val stream = if (conn.responseCode in 200..299) conn.inputStream else conn.errorStream
             val text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: "{}"
             JSONObject(text)
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    fun downloadFile(baseUrl: String, token: String, path: String, dest: File) {
+        val conn = (URL("$baseUrl$path").openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 5000
+            readTimeout = 30000
+            if (token.isNotEmpty()) setRequestProperty("Authorization", "Bearer $token")
+        }
+        try {
+            if (conn.responseCode !in 200..299) {
+                throw IllegalStateException("HTTP ${conn.responseCode}")
+            }
+            dest.parentFile?.mkdirs()
+            conn.inputStream.use { input ->
+                dest.outputStream().use { output -> input.copyTo(output) }
+            }
         } finally {
             conn.disconnect()
         }

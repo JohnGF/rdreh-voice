@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -20,6 +21,32 @@ from urllib.parse import parse_qs, urlparse
 HERE = Path(__file__).resolve().parent
 STATIC_DIR = HERE / "static"
 DEFAULT_LOCAL_RDR = Path("/home/john/git/rdreh/target/release/rdr")
+APK_PATH = Path(
+    os.environ.get("RDR_VOICE_APK")
+    or (HERE / "android" / "app" / "build" / "outputs" / "apk" / "debug" / "app-debug.apk")
+)
+_APK_CACHE: dict[str, Any] = {"key": None, "sha256": ""}
+
+
+def _apk_metadata() -> dict[str, Any]:
+    if not APK_PATH.is_file():
+        return {"ok": True, "available": False}
+    st = APK_PATH.stat()
+    key = (st.st_mtime_ns, st.st_size)
+    if _APK_CACHE["key"] != key:
+        h = hashlib.sha256()
+        with APK_PATH.open("rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                h.update(chunk)
+        _APK_CACHE["key"] = key
+        _APK_CACHE["sha256"] = h.hexdigest()
+    return {
+        "ok": True,
+        "available": True,
+        "size": st.st_size,
+        "mtime": int(st.st_mtime),
+        "sha256": _APK_CACHE["sha256"],
+    }
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
 BOX_RE = re.compile(r"[─│┌┐└┘├┤┬┴┼╭╮╰╯═║╔╗╚╝╠╣╦╩╬▀▄█▌▐░▒▓]+")
@@ -1290,6 +1317,20 @@ def make_handler(rdr_bin: str, session: str | None, token: str | None) -> type[B
                                 "options": [],
                             }
                     self._send_json(HTTPStatus.OK, {"ok": True, "tails": tails})
+                elif parsed.path == "/api/app/version":
+                    self._send_json(HTTPStatus.OK, _apk_metadata())
+                elif parsed.path == "/api/app/apk":
+                    if not APK_PATH.is_file():
+                        self._send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "APK not built"})
+                        return
+                    data = APK_PATH.read_bytes()
+                    self.send_response(HTTPStatus.OK)
+                    self.send_header("Content-Type", "application/vnd.android.package-archive")
+                    self.send_header("Content-Disposition", 'attachment; filename="rdreh-voice.apk"')
+                    self.send_header("Content-Length", str(len(data)))
+                    self.send_header("Cache-Control", "no-store")
+                    self.end_headers()
+                    self.wfile.write(data)
                 else:
                     self._send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not found"})
             except Exception as exc:

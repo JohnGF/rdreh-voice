@@ -3,6 +3,7 @@ package com.rdreh.voice
 import android.Manifest
 import android.content.Intent
 import android.graphics.Color
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -19,10 +20,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.util.Locale
 import kotlin.concurrent.thread
 
@@ -30,6 +33,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var urlInput: EditText
     private lateinit var tokenInput: EditText
     private lateinit var speechModeBtn: Button
+    private lateinit var updateBtn: Button
     private lateinit var statusText: TextView
     private lateinit var windowsRow: LinearLayout
     private lateinit var panesContainer: LinearLayout
@@ -138,8 +142,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     startActivity(Intent(Settings.ACTION_VOICE_INPUT_SETTINGS))
                 }
             }
+            updateBtn = Button(this@MainActivity).apply {
+                text = "Update App"
+                setOnClickListener { installAppUpdate() }
+            }
             addView(speakBtn)
             addView(assistantBtn)
+            addView(updateBtn)
         }
 
         val winHeader = TextView(this).apply {
@@ -188,6 +197,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         super.onResume()
         refreshHandler.removeCallbacks(autoRefreshTask)
         refreshHandler.post(autoRefreshTask)
+        checkAppUpdate()
     }
 
     override fun onPause() {
@@ -505,6 +515,63 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 refreshPanes()
                 refreshHandler.postDelayed({ refreshPanes() }, 600L)
                 refreshHandler.postDelayed({ refreshPanes() }, 1600L)
+            }
+        }
+    }
+
+    private fun checkAppUpdate() {
+        val url = Prefs.getUrl(this)
+        val token = Prefs.getToken(this)
+        thread {
+            val res = runCatching { RdrApiClient.getJson(url, token, "/api/app/version") }.getOrNull()
+            val available = res?.optBoolean("available", false) == true
+            val sha = res?.optString("sha256", "").orEmpty()
+            val known = Prefs.getLastApkSha(this)
+            runOnUiThread {
+                updateBtn.text = if (available && sha.isNotEmpty() && sha != known) {
+                    "Update App (new)"
+                } else {
+                    "Update App"
+                }
+            }
+        }
+    }
+
+    private fun installAppUpdate() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+            statusText.text = "Allow 'Install unknown apps', then tap Update App again."
+            startActivity(
+                Intent(
+                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:$packageName"),
+                ),
+            )
+            return
+        }
+        val url = Prefs.getUrl(this)
+        val token = Prefs.getToken(this)
+        statusText.text = "Downloading update..."
+        thread {
+            val ver = runCatching { RdrApiClient.getJson(url, token, "/api/app/version") }.getOrNull()
+            val sha = ver?.optString("sha256", "").orEmpty()
+            val dest = File(cacheDir, "updates/rdreh-voice.apk")
+            val result = runCatching {
+                RdrApiClient.downloadFile(url, token, "/api/app/apk", dest)
+            }
+            runOnUiThread {
+                if (result.isFailure) {
+                    statusText.text = "Update failed: ${result.exceptionOrNull()?.message}"
+                    return@runOnUiThread
+                }
+                if (sha.isNotEmpty()) {
+                    Prefs.setLastApkSha(this, sha)
+                }
+                val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", dest)
+                val installIntent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, "application/vnd.android.package-archive")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                startActivity(installIntent)
             }
         }
     }

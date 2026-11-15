@@ -8,6 +8,7 @@ object Prefs {
     private const val KEY_TOKEN = "auth_token"
     private const val KEY_SPEECH_MODE = "speech_mode"
     private const val KEY_SAFETY_MODE = "safety_mode"
+    private const val KEY_APK_SHA = "last_apk_sha"
 
     const val MODE_FULL = "full"
     const val MODE_BRIEF = "brief"
@@ -40,6 +41,16 @@ object Prefs {
     fun setSafetyMode(ctx: Context, enabled: Boolean) {
         ctx.getSharedPreferences(NAME, Context.MODE_PRIVATE).edit()
             .putBoolean(KEY_SAFETY_MODE, enabled)
+            .apply()
+    }
+
+    fun getLastApkSha(ctx: Context): String =
+        ctx.getSharedPreferences(NAME, Context.MODE_PRIVATE)
+            .getString(KEY_APK_SHA, "")!!
+
+    fun setLastApkSha(ctx: Context, sha: String) {
+        ctx.getSharedPreferences(NAME, Context.MODE_PRIVATE).edit()
+            .putString(KEY_APK_SHA, sha)
             .apply()
     }
 
