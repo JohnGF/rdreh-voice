@@ -5,6 +5,8 @@ import android.content.Intent
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.speech.tts.TextToSpeech
 import android.widget.Button
@@ -33,6 +35,14 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var panesContainer: LinearLayout
 
     private var speechMode: String = Prefs.MODE_FULL
+    private val refreshHandler = Handler(Looper.getMainLooper())
+    @Volatile private var isRefreshing = false
+    private val autoRefreshTask = object : Runnable {
+        override fun run() {
+            refreshPanes()
+            refreshHandler.postDelayed(this, 3000L)
+        }
+    }
     private var selectedWindowIndex: Int? = -1 // -1 = Agents only (default), null = All windows
     private var lastState: JSONObject? = null
     private var lastTails: JSONObject = JSONObject()
@@ -176,7 +186,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     override fun onResume() {
         super.onResume()
-        refreshPanes()
+        refreshHandler.removeCallbacks(autoRefreshTask)
+        refreshHandler.post(autoRefreshTask)
+    }
+
+    override fun onPause() {
+        refreshHandler.removeCallbacks(autoRefreshTask)
+        super.onPause()
     }
 
     override fun onDestroy() {
@@ -212,6 +228,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun refreshPanes() {
+        if (isRefreshing) return
+        isRefreshing = true
         val url = Prefs.getUrl(this)
         val token = Prefs.getToken(this)
         thread {
@@ -231,6 +249,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 }
             }
             runOnUiThread {
+                isRefreshing = false
                 if (!res.optBoolean("ok", false)) {
                     statusText.text = "Error: ${res.optString("error", "offline")}"
                     return@runOnUiThread
@@ -470,7 +489,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     JSONObject().put("pane", paneId).put("text", text).put("enter", true),
                 )
             }
-            runOnUiThread { refreshPanes() }
+            runOnUiThread {
+                refreshPanes()
+                refreshHandler.postDelayed({ refreshPanes() }, 600L)
+                refreshHandler.postDelayed({ refreshPanes() }, 1600L)
+            }
         }
     }
 }
