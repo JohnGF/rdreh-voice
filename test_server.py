@@ -283,6 +283,22 @@ Which approach do you prefer?
                 self.assertEqual(clr["spoken"], "Cleared agent 3.")
                 mock_send.assert_called_with("rdr", None, 9, "/clear", True)
 
+                conv = server.parse_and_execute_command(
+                    "rdr",
+                    None,
+                    "okay let's tell agent 3 to maybe try to look for some features that I'm missing",
+                    2,
+                )
+                self.assertEqual(conv["action"], "send")
+                self.assertEqual(conv["pane"], 9)
+                mock_send.assert_called_with(
+                    "rdr",
+                    None,
+                    9,
+                    "maybe try to look for some features that I'm missing",
+                    True,
+                )
+
     def test_sanitize_drops_colons_hyphens_and_filename_dots(self) -> None:
         raw = "Updated server.py (http://10.0.0.100:8765) — check test_server.py; 100% pass!"
         out = server.sanitize_for_speech(raw)

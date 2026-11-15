@@ -939,9 +939,9 @@ def parse_and_execute_command(
             "spoken": spoken,
         }
 
-    # "send to agent 1: <msg>", "tell agent 1 <msg>", "agent 1: <msg>"
+    # "send to agent 1: <msg>", "tell agent 1 <msg>", "okay let's tell agent 3 to <msg>", "agent 1: <msg>"
     m = re.match(
-        r"^(?:(?:send(?:\s+this(?:\s+message)?)?\s+to|tell|ask)\s+)?(?:agent|pane)\s+(\d+)\s*[:,]?\s+(.+)$",
+        r"^(?:.*?\b(?:send(?:\s+(?:this(?:\s+message)?|a\s+message))?\s+to|tell|ask)\s+)?(?:agent|pane)\s+(\d+)\s*(?:[:,]|\s+to(?=\s))?\s+(.+)$",
         scoped_raw,
         re.IGNORECASE | re.DOTALL,
     )
