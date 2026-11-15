@@ -928,8 +928,8 @@ def make_handler(rdr_bin: str, session: str | None, token: str | None) -> type[B
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="rdreh voice companion server")
-    parser.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
-    parser.add_argument("--port", type=int, default=8765, help="Bind port (default: 8765)")
+    parser.add_argument("--host", default=os.environ.get("RDR_VOICE_HOST", "127.0.0.1"), help="Bind host (default: 127.0.0.1)")
+    parser.add_argument("--port", type=int, default=int(os.environ.get("RDR_VOICE_PORT", "8765")), help="Bind port (default: 8765)")
     parser.add_argument("--session", default=os.environ.get("RDR_SESSION"), help="rdreh session name")
     parser.add_argument("--tls-cert", default=os.environ.get("RDR_VOICE_TLS_CERT"), help="Path to TLS certificate PEM")
     parser.add_argument("--tls-key", default=os.environ.get("RDR_VOICE_TLS_KEY"), help="Path to TLS private key PEM")
