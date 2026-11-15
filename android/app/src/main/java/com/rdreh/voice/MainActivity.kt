@@ -16,6 +16,8 @@ import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
@@ -157,7 +159,16 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             panesContainer,
         ).forEach { root.addView(it) }
 
-        setContentView(ScrollView(this).apply { addView(root) })
+        val scroll = ScrollView(this).apply {
+            clipToPadding = false
+            addView(root)
+        }
+        ViewCompat.setOnApplyWindowInsetsListener(scroll) { v, windowInsets ->
+            val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(insets.left, insets.top, insets.right, insets.bottom + 48)
+            windowInsets
+        }
+        setContentView(scroll)
         requestRuntimePermissions()
     }
 
@@ -299,6 +310,12 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             orientation = LinearLayout.VERTICAL
             setPadding(24, 18, 24, 18)
             setBackgroundColor(Color.parseColor("#1E293B"))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                bottomMargin = 16
+            }
 
             val header = TextView(this@MainActivity).apply {
                 text = "$label  [${state.uppercase()}]"
