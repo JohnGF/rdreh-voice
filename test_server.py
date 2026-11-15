@@ -291,6 +291,38 @@ Which approach do you prefer?
         self.assertNotIn("server.py", out)
         self.assertIn("100% pass!", out)
 
+    def test_directory_navigation_commands(self) -> None:
+        fake_state = {
+            "ok": True,
+            "panes": [
+                {
+                    "id": 9,
+                    "workspace_index": 1,
+                    "pane_index": 0,
+                    "agent_num": 1,
+                    "agent": True,
+                    "state": "idle",
+                    "focused": True,
+                    "cwd": "/home/john/git/rdreh-voice",
+                    "job_label": "rdreh-voice",
+                }
+            ],
+            "workspaces": [{"index": 1, "name": "agents", "active": True, "panes": [9]}],
+            "counts": {"total": 1, "busy": 0, "finished": 1},
+        }
+        with patch.object(server, "fetch_panes", return_value=fake_state):
+            with patch.object(server, "run_rdr", return_value="ok") as mock_rdr:
+                res = server.parse_and_execute_command("rdr", None, "open rdreh voice quad", 9)
+                self.assertEqual(res["action"], "open_dir")
+                self.assertEqual(res["spoken"], "Opened rdreh-voice.")
+                mock_rdr.assert_called_once_with("rdr", None, ["add", "/home/john/git/rdreh-voice", "quad"])
+
+            with patch.object(server, "send_to_pane") as mock_send:
+                cd_res = server.parse_and_execute_command("rdr", None, "cd rdreh in agent 1", 9)
+                self.assertEqual(cd_res["action"], "cd")
+                self.assertEqual(cd_res["spoken"], "Changed agent 1 to rdreh.")
+                mock_send.assert_called_once_with("rdr", None, 9, "cd '/home/john/git/rdreh'", True)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -468,6 +468,90 @@ def tail_pane(rdr_bin: str, session: str | None, pane_id: int, lines: int = 40) 
     return str(data.get("text") or "")
 
 
+def _norm_dir_name(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", name.lower()).strip()
+
+
+def _search_roots(panes: list[dict[str, Any]] | None = None) -> list[Path]:
+    roots: list[Path] = []
+    for cand in [Path.home() / "git", Path.home()]:
+        if cand.is_dir() and cand not in roots:
+            roots.append(cand)
+    for p in panes or []:
+        cwd = p.get("cwd")
+        if cwd:
+            path = Path(cwd)
+            if path.is_dir() and path not in roots:
+                roots.append(path)
+    return roots
+
+
+def resolve_spoken_directory(query: str, panes: list[dict[str, Any]] | None = None) -> Path | None:
+    """Resolve a spoken folder name or path against ~/git, ~, and open pane directories."""
+    cleaned = query.strip().strip("\"'.,!?")
+    if not cleaned:
+        return None
+    direct = Path(cleaned).expanduser()
+    if direct.is_dir():
+        return direct
+
+    # Support "<sub_dir> in <parent_dir>"
+    in_match = re.match(r"^(.+?)\s+in\s+(.+)$", cleaned, re.IGNORECASE)
+    if in_match:
+        parent = resolve_spoken_directory(in_match.group(2), panes)
+        if parent:
+            child = resolve_spoken_directory(in_match.group(1), [{"cwd": str(parent)}])
+            if child:
+                return child
+
+    q_norm = _norm_dir_name(cleaned)
+    if not q_norm:
+        return None
+
+    candidates: list[tuple[int, Path]] = []
+    seen: set[Path] = set()
+    for root in _search_roots(panes):
+        for depth_path in [root, *(d for d in root.iterdir() if d.is_dir() and not d.name.startswith("."))]:
+            if depth_path in seen:
+                continue
+            seen.add(depth_path)
+            name_norm = _norm_dir_name(depth_path.name)
+            if name_norm == q_norm:
+                candidates.append((0, depth_path))
+            elif name_norm.startswith(q_norm):
+                candidates.append((1, depth_path))
+            elif q_norm in name_norm:
+                candidates.append((2, depth_path))
+        # Also check 2nd-level directories under ~/git (e.g. ~/git/bci_projects/galaxy_watch_lsl)
+        if root == Path.home() / "git":
+            for sub in root.iterdir():
+                if not sub.is_dir() or sub.name.startswith("."):
+                    continue
+                for leaf in sub.iterdir():
+                    if not leaf.is_dir() or leaf.name.startswith(".") or leaf in seen:
+                        continue
+                    seen.add(leaf)
+                    name_norm = _norm_dir_name(leaf.name)
+                    if name_norm == q_norm:
+                        candidates.append((3, leaf))
+                    elif name_norm.startswith(q_norm):
+                        candidates.append((4, leaf))
+                    elif q_norm in name_norm:
+                        candidates.append((5, leaf))
+
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], len(item[1].name)))
+    return candidates[0][1]
+
+
+def list_spoken_directories(parent_query: str | None = None, panes: list[dict[str, Any]] | None = None) -> list[str]:
+    base = resolve_spoken_directory(parent_query, panes) if parent_query else (Path.home() / "git")
+    if base is None or not base.is_dir():
+        base = Path.home()
+    return sorted(d.name for d in base.iterdir() if d.is_dir() and not d.name.startswith("."))
+
+
 def summarize_git_changes(cwd: str) -> str:
     """Return a concise spoken summary of git working-tree changes in `cwd`."""
     if not cwd:
@@ -580,6 +664,88 @@ def parse_and_execute_command(
     # Token usage summary
     if lower in {"tokens", "token usage", "usage", "spend", "how many tokens"}:
         return {"ok": True, "action": "tokens", "spoken": summarize_tokens(rdr_bin)}
+
+    # List directories ("list projects", "list directories in bci projects")
+    m = re.match(
+        r"^(?:list|show|what)\s+(?:projects|directories|folders|repos)(?:\s+in\s+(.+))?$",
+        lower,
+    )
+    if m:
+        parent_q = m.group(1)
+        dirs = list_spoken_directories(parent_q, panes)
+        if not dirs:
+            return {"ok": True, "action": "list_dirs", "spoken": "No folders found."}
+        preview = ", ".join(dirs[:8])
+        more = f", and {len(dirs) - 8} more" if len(dirs) > 8 else ""
+        return {"ok": True, "action": "list_dirs", "dirs": dirs, "spoken": f"Folders: {preview}{more}."}
+
+    # Open directory as a new workspace ("open project rdreh", "open directory dotfiles", "open rdreh quad")
+    m = re.match(
+        r"^(?:open|add)\s+(?:(?:project|directory|folder|workspace)\s+)?(.+?)(?:\s+(?:with\s+|in\s+)?(single|dual|tri|quad|rows)\s*(?:layout)?)?$",
+        scoped_raw.strip(" .!?"),
+        re.IGNORECASE,
+    )
+    if m and not re.match(r"^(?:window|workspace|tab)\s+\d+$", lower):
+        dir_query = m.group(1).strip()
+        layout = m.group(2).lower() if m.group(2) else None
+        resolved = resolve_spoken_directory(dir_query, panes)
+        if not resolved:
+            return {
+                "ok": False,
+                "error": f"Directory not found: {dir_query}",
+                "spoken": f"Could not find folder {dir_query}.",
+            }
+        args = ["add", str(resolved)]
+        if layout:
+            args.append(layout)
+        run_rdr(rdr_bin, session, args)
+        return {
+            "ok": True,
+            "action": "open_dir",
+            "path": str(resolved),
+            "spoken": f"Opened {resolved.name}.",
+        }
+
+    # Change directory in target pane ("cd rdreh", "go to dotfiles in agent 1")
+    m = re.match(
+        r"^(?:cd|go\s+to|switch\s+directory\s+to)\s+(.+?)(?:\s+(?:in|on)\s+(?:agent\s+|pane\s+)?(\d+))?$",
+        scoped_raw.strip(" .!?"),
+        re.IGNORECASE,
+    )
+    if m:
+        dir_query = m.group(1).strip()
+        num = int(m.group(2)) if m.group(2) else None
+        resolved = resolve_spoken_directory(dir_query, panes)
+        if not resolved:
+            return {
+                "ok": False,
+                "error": f"Directory not found: {dir_query}",
+                "spoken": f"Could not find folder {dir_query}.",
+            }
+        target = (
+            resolve_target_pane(
+                panes, num, view_mode=view_mode, active_workspace=active_workspace, ws_ref=ws_ref
+            )
+            if num is not None
+            else (
+                next((p for p in panes if p["id"] == default_pane), None)
+                or resolve_target_pane(
+                    panes, None, view_mode=view_mode, active_workspace=active_workspace
+                )
+            )
+        )
+        if not target:
+            return {"ok": False, "error": "No target pane available", "spoken": "No pane found."}
+        send_to_pane(rdr_bin, session, target["id"], f"cd '{resolved}'", True)
+        lnum = pane_label_num(target, "workspace" if ws_ref is not None else view_mode)
+        noun = "agent" if (ws_ref is None and view_mode == "agents" and target.get("agent_num") is not None) else "pane"
+        return {
+            "ok": True,
+            "action": "cd",
+            "pane": target["id"],
+            "path": str(resolved),
+            "spoken": f"Changed {noun} {lnum} to {resolved.name}.",
+        }
 
     # Git diff / working tree summary ("what changed", "what changed in agent 1")
     m = re.match(

@@ -79,10 +79,13 @@ Spoken numbers (`one` through `ten`) are normalized automatically (e.g. `agent o
   - `repeat` / `say again`
   - `tokens` / `token usage`
   - `what changed` / `what changed in agent 1`
-- **Switch Views & Cross-Window**:
+- **Switch Views & Directories**:
   - `agents` / `show agents`
   - `focus agent 1` / `select pane 2`
   - `window 2` / `switch to window 2`
+  - `list projects` / `list folders in bci projects`
+  - `open rdreh voice` / `open project dotfiles quad`
+  - `cd rdreh in agent 1` / `go to dotfiles`
   - Prefix any command with `window <N>` (e.g. `window 2 read pane 1`).
 - **Send Message**:
   - `send to agent 1: <message>` / `tell agent 1 <message>` / `agent 1: <message>`
