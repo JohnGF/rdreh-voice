@@ -360,6 +360,76 @@ Which approach do you prefer?
         self.assertEqual(len(res["options"]), 4)
         self.assertEqual(res["options"][2], {"num": 3, "label": "DuckDB"})
 
+    def test_leading_target_prefix_routes_commands_and_messages(self) -> None:
+        fake_state = {
+            "ok": True,
+            "panes": [
+                {
+                    "id": 9,
+                    "workspace_index": 1,
+                    "pane_index": 0,
+                    "agent_num": 1,
+                    "agent": True,
+                    "state": "idle",
+                    "focused": False,
+                    "cwd": "/home/john/git/rdreh",
+                    "job_label": "rdreh",
+                },
+                {
+                    "id": 10,
+                    "workspace_index": 1,
+                    "pane_index": 1,
+                    "agent_num": 2,
+                    "agent": True,
+                    "state": "idle",
+                    "focused": True,
+                    "cwd": "/home/john/git/rdreh",
+                    "job_label": "rdreh",
+                },
+                {
+                    "id": 11,
+                    "workspace_index": 1,
+                    "pane_index": 2,
+                    "agent_num": 3,
+                    "agent": True,
+                    "state": "idle",
+                    "focused": False,
+                    "cwd": "/home/john/git/rdreh",
+                    "job_label": "rdreh",
+                },
+            ],
+            "workspaces": [{"index": 1, "name": "agents", "active": True, "panes": [9, 10, 11]}],
+            "counts": {"total": 3, "busy": 0, "finished": 3},
+        }
+        with patch.object(server, "fetch_panes", return_value=fake_state):
+            with patch.object(server, "send_to_pane") as mock_send:
+                r1 = server.parse_and_execute_command("rdr", None, "agent 3 compact", 10)
+                self.assertEqual(r1["pane"], 11)
+                self.assertEqual(r1["spoken"], "Compacted agent 3.")
+                mock_send.assert_called_with("rdr", None, 11, "/compact", True)
+
+                r2 = server.parse_and_execute_command("rdr", None, "agent 2 yes", 9)
+                self.assertEqual(r2["pane"], 10)
+                self.assertEqual(r2["spoken"], "Sent yes to agent 2.")
+                mock_send.assert_called_with("rdr", None, 10, "y", True)
+
+                r3 = server.parse_and_execute_command("rdr", None, "3 check tests", 10)
+                self.assertEqual(r3["pane"], 11)
+                self.assertEqual(r3["spoken"], "Sent to agent 3.")
+                mock_send.assert_called_with("rdr", None, 11, "check tests", True)
+
+                r4 = server.parse_and_execute_command("rdr", None, "one clear", 10)
+                self.assertEqual(r4["pane"], 9)
+                self.assertEqual(r4["spoken"], "Cleared agent 1.")
+                mock_send.assert_called_with("rdr", None, 9, "/clear", True)
+
+            with patch.object(server, "tail_pane", return_value="All tests passed.") as mock_tail:
+                r5 = server.parse_and_execute_command("rdr", None, "agent 1 read", 10)
+                self.assertEqual(r5["action"], "read")
+                self.assertEqual(r5["pane"], 9)
+                self.assertIn("Agent 1", r5["spoken"])
+                mock_tail.assert_called_with("rdr", None, 9, 40)
+
 
 if __name__ == "__main__":
     unittest.main()

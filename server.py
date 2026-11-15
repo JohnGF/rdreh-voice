@@ -668,6 +668,55 @@ def parse_and_execute_command(
         ws_ref = int(ws_prefix.group(1))
         scoped_raw = ws_prefix.group(2).strip()
 
+    def _resolve(num: int) -> dict[str, Any] | None:
+        return resolve_target_pane(
+            panes,
+            num,
+            view_mode=view_mode,
+            active_workspace=active_workspace,
+            ws_ref=ws_ref,
+        )
+
+    def _resolve_or_default(num: int | None) -> dict[str, Any] | None:
+        if num is not None:
+            return _resolve(num)
+        return next((p for p in panes if p["id"] == default_pane), None) or resolve_target_pane(
+            panes, None, view_mode=view_mode, active_workspace=active_workspace, ws_ref=ws_ref
+        )
+
+    def _label(target: dict[str, Any]) -> tuple[int, str]:
+        num = pane_label_num(target, "workspace" if ws_ref is not None else view_mode)
+        noun = "agent" if (ws_ref is None and view_mode == "agents" and target.get("agent_num") is not None) else "pane"
+        return num, noun
+
+    # Optional leading target prefix: "agent 3 <cmd/msg>", "tell agent 1 to <msg>", "3 <cmd/msg>", "one clear"
+    lead_explicit = re.match(
+        r"^(?:(?:send(?:\s+(?:this(?:\s+message)?|a\s+message))?\s+to|tell|ask|on|for|in)\s+)?(?:agent|pane)\s+(\d+)\s*(?:[:,]|\s+(?:tell\s+it\s+to|to)(?=\s))?\s+(.+)$",
+        scoped_raw,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if lead_explicit:
+        lead_num = int(lead_explicit.group(1))
+        lead_target = _resolve(lead_num)
+        if not lead_target:
+            return {"ok": False, "error": f"Unknown target {lead_num}", "spoken": f"Target {lead_num} not found."}
+        default_pane = lead_target["id"]
+        scoped_raw = lead_explicit.group(2).strip()
+    else:
+        num_words = "|".join(SPOKEN_NUMS.keys())
+        lead_num_m = re.match(
+            rf"^(\d+|{num_words})\s*[:,]?\s+(.+)$",
+            scoped_raw,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if lead_num_m:
+            raw_lead = lead_num_m.group(1).lower()
+            lead_num = int(SPOKEN_NUMS.get(raw_lead, raw_lead))
+            lead_target = _resolve(lead_num)
+            if lead_target:
+                default_pane = lead_target["id"]
+                scoped_raw = lead_num_m.group(2).strip()
+
     lower = scoped_raw.lower().strip(" .!?")
 
     # View / window switching
@@ -848,20 +897,6 @@ def parse_and_execute_command(
             )
         return {"ok": True, "action": "read_all", "spoken": " ".join(snippets) if snippets else "No panes."}
 
-    def _resolve(num: int) -> dict[str, Any] | None:
-        return resolve_target_pane(
-            panes,
-            num,
-            view_mode=view_mode,
-            active_workspace=active_workspace,
-            ws_ref=ws_ref,
-        )
-
-    def _label(target: dict[str, Any]) -> tuple[int, str]:
-        num = pane_label_num(target, "workspace" if ws_ref is not None else view_mode)
-        noun = "agent" if (ws_ref is None and view_mode == "agents" and target.get("agent_num") is not None) else "pane"
-        return num, noun
-
     # "compact", "compact agent 1", "clear", "clear agent 1", "new chat"
     m = re.match(
         r"^(compact|clear|reset|new\s+chat)(?:\s+(?:for\s+|on\s+)?(?:agent\s+|pane\s+)?(\d+))?$",
@@ -871,16 +906,7 @@ def parse_and_execute_command(
         verb = m.group(1)
         slash_cmd = "/compact" if verb == "compact" else "/clear"
         num = int(m.group(2)) if m.group(2) else None
-        target = (
-            _resolve(num)
-            if num is not None
-            else (
-                next((p for p in panes if p["id"] == default_pane), None)
-                or resolve_target_pane(
-                    panes, None, view_mode=view_mode, active_workspace=active_workspace
-                )
-            )
-        )
+        target = _resolve_or_default(num)
         if not target:
             return {"ok": False, "error": "No target pane available", "spoken": "No pane found."}
         send_to_pane(rdr_bin, session, target["id"], slash_cmd, True)
@@ -893,13 +919,15 @@ def parse_and_execute_command(
             "spoken": f"{past} {noun} {lnum}.",
         }
 
-    # "yes to agent 1", "approve agent 2", "yes 1"
-    m = re.match(r"^(yes|yep|yeah|approve|confirm|ok)\s+(?:to\s+)?(?:agent\s+|pane\s+)?(\d+)$", lower)
+    # "yes", "yes to agent 1", "approve agent 2", "yes 1"
+    m = re.match(r"^(yes|yep|yeah|approve|confirm|ok)(?:\s+(?:to\s+)?(?:agent\s+|pane\s+)?(\d+))?$", lower)
     if m:
-        num = int(m.group(2))
-        target = _resolve(num)
+        num = int(m.group(2)) if m.group(2) else None
+        target = _resolve_or_default(num)
         if not target:
-            return {"ok": False, "error": f"Unknown target {num}", "spoken": f"Target {num} not found."}
+            err = f"Unknown target {num}" if num is not None else "No target pane available"
+            spoken = f"Target {num} not found." if num is not None else "No pane found."
+            return {"ok": False, "error": err, "spoken": spoken}
         send_to_pane(rdr_bin, session, target["id"], "y", True)
         lnum, noun = _label(target)
         return {
@@ -909,13 +937,15 @@ def parse_and_execute_command(
             "spoken": f"Sent yes to {noun} {lnum}.",
         }
 
-    # "no to agent 1", "reject agent 2", "no 2"
-    m = re.match(r"^(no|nope|reject|deny)\s+(?:to\s+)?(?:agent\s+|pane\s+)?(\d+)$", lower)
+    # "no", "no to agent 1", "reject agent 2", "no 2"
+    m = re.match(r"^(no|nope|reject|deny)(?:\s+(?:to\s+)?(?:agent\s+|pane\s+)?(\d+))?$", lower)
     if m:
-        num = int(m.group(2))
-        target = _resolve(num)
+        num = int(m.group(2)) if m.group(2) else None
+        target = _resolve_or_default(num)
         if not target:
-            return {"ok": False, "error": f"Unknown target {num}", "spoken": f"Target {num} not found."}
+            err = f"Unknown target {num}" if num is not None else "No target pane available"
+            spoken = f"Target {num} not found." if num is not None else "No pane found."
+            return {"ok": False, "error": err, "spoken": spoken}
         send_to_pane(rdr_bin, session, target["id"], "n", True)
         lnum, noun = _label(target)
         return {
@@ -925,13 +955,15 @@ def parse_and_execute_command(
             "spoken": f"Sent no to {noun} {lnum}.",
         }
 
-    # "cancel agent 1", "stop agent 1"
-    m = re.match(r"^(cancel|stop|abort|interrupt)\s+(?:agent\s+|pane\s+)?(\d+)$", lower)
+    # "cancel", "cancel agent 1", "stop agent 1"
+    m = re.match(r"^(cancel|stop|abort|interrupt)(?:\s+(?:agent\s+|pane\s+)?(\d+))?$", lower)
     if m:
-        num = int(m.group(2))
-        target = _resolve(num)
+        num = int(m.group(2)) if m.group(2) else None
+        target = _resolve_or_default(num)
         if not target:
-            return {"ok": False, "error": f"Unknown target {num}", "spoken": f"Target {num} not found."}
+            err = f"Unknown target {num}" if num is not None else "No target pane available"
+            spoken = f"Target {num} not found." if num is not None else "No pane found."
+            return {"ok": False, "error": err, "spoken": spoken}
         send_to_pane(rdr_bin, session, target["id"], "\x03", False)
         lnum, noun = _label(target)
         return {
@@ -941,13 +973,15 @@ def parse_and_execute_command(
             "spoken": f"Cancelled {noun} {lnum}.",
         }
 
-    # "enter to agent 1", "continue agent 1"
-    m = re.match(r"^(enter|continue|submit)\s+(?:to\s+)?(?:agent\s+|pane\s+)?(\d+)$", lower)
+    # "enter", "enter to agent 1", "continue agent 1"
+    m = re.match(r"^(enter|continue|submit)(?:\s+(?:to\s+)?(?:agent\s+|pane\s+)?(\d+))?$", lower)
     if m:
-        num = int(m.group(2))
-        target = _resolve(num)
+        num = int(m.group(2)) if m.group(2) else None
+        target = _resolve_or_default(num)
         if not target:
-            return {"ok": False, "error": f"Unknown target {num}", "spoken": f"Target {num} not found."}
+            err = f"Unknown target {num}" if num is not None else "No target pane available"
+            spoken = f"Target {num} not found." if num is not None else "No pane found."
+            return {"ok": False, "error": err, "spoken": spoken}
         send_to_pane(rdr_bin, session, target["id"], "", True)
         lnum, noun = _label(target)
         return {
@@ -957,13 +991,18 @@ def parse_and_execute_command(
             "spoken": f"Pressed enter on {noun} {lnum}.",
         }
 
-    # "read agent 1", "what did agent 1 say"
-    m = re.match(r"^(?:read|check|what did)\s+(?:agent\s+|pane\s+)?(\d+)(?:\s+say)?$", lower)
+    # "read", "read agent 1", "what did agent 1 say"
+    m = re.match(
+        r"^(?:(?:read|check)(?:\s+(?:it|this|that))?|(?:read|check|what did)\s+(?:agent\s+|pane\s+)?(\d+)(?:\s+say)?|what did it say)$",
+        lower,
+    )
     if m:
-        num = int(m.group(1))
-        target = _resolve(num)
+        num = int(m.group(1)) if m.group(1) else None
+        target = _resolve_or_default(num)
         if not target:
-            return {"ok": False, "error": f"Unknown target {num}", "spoken": f"Target {num} not found."}
+            err = f"Unknown target {num}" if num is not None else "No target pane available"
+            spoken = f"Target {num} not found." if num is not None else "No pane found."
+            return {"ok": False, "error": err, "spoken": spoken}
         text = tail_pane(rdr_bin, session, target["id"], 40)
         lnum, noun = _label(target)
         analysis = analyze_for_tts(text)
