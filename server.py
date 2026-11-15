@@ -403,6 +403,13 @@ def resolve_target_pane(
             )
             if ws_focused:
                 return ws_focused
+        if view_mode == "agents":
+            agent_focused = next((p for p in panes if p["agent"] and p["focused"]), None)
+            if agent_focused:
+                return agent_focused
+            first_agent = next((p for p in panes if p["agent"]), None)
+            if first_agent:
+                return first_agent
         return next((p for p in panes if p["focused"]), panes[0] if panes else None)
 
     if ws_ref is not None:
@@ -474,14 +481,16 @@ SPOKEN_NUMS = {
 
 def normalize_spoken_targets(text: str) -> str:
     """Convert spoken target numbers and STT homophones like 'agents tree' -> 'agent 3'."""
+    text = re.sub(r"\bpageantry\b", "agent 3", text, flags=re.IGNORECASE)
     words = "|".join(SPOKEN_NUMS.keys())
     pattern = re.compile(
-        rf"\b(agents?|panes?|windows?|workspaces?|tabs?)\s+({words}|\d+)\b",
+        rf"\b(agents?|panes?|windows?|workspaces?|tabs?|patient|pageant|asian)\s+({words}|\d+)\b",
         re.IGNORECASE,
     )
 
     def _repl(m: re.Match[str]) -> str:
-        noun = m.group(1).lower().rstrip("s")
+        raw_noun = m.group(1).lower()
+        noun = "agent" if raw_noun in {"patient", "pageant", "asian"} else raw_noun.rstrip("s")
         raw_num = m.group(2).lower()
         num = SPOKEN_NUMS.get(raw_num, raw_num)
         return f"{noun} {num}"
@@ -973,9 +982,9 @@ def parse_and_execute_command(
             "spoken": spoken,
         }
 
-    # "send to agent 1: <msg>", "tell agent 1 <msg>", "okay let's tell agent 3 to <msg>", "agent 1: <msg>"
+    # "send to agent 1: <msg>", "tell agent 1 <msg>", "on agent 3 tell it to <msg>", "agent 1: <msg>"
     m = re.match(
-        r"^(?:.*?\b(?:send(?:\s+(?:this(?:\s+message)?|a\s+message))?\s+to|tell|ask)\s+)?(?:agent|pane)\s+(\d+)\s*(?:[:,]|\s+to(?=\s))?\s+(.+)$",
+        r"^(?:.*?\b(?:send(?:\s+(?:this(?:\s+message)?|a\s+message))?\s+to|tell|ask|on|for|in)\s+)?(?:agent|pane)\s+(\d+)\s*(?:[:,]|\s+(?:tell\s+it\s+to|to)(?=\s))?\s+(.+)$",
         scoped_raw,
         re.IGNORECASE | re.DOTALL,
     )

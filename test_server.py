@@ -343,6 +343,16 @@ Which approach do you prefer?
                 self.assertEqual(wake_res["action"], "send")
                 mock_send.assert_called_with("rdr", None, 9, "run tests", True)
 
+                on_res = server.parse_and_execute_command("rdr", None, "on agent 1 tell it to check features", 2)
+                self.assertEqual(on_res["pane"], 9)
+                mock_send.assert_called_with("rdr", None, 9, "check features", True)
+
+                stt_res = server.parse_and_execute_command("rdr", None, "patient 1 check for new features", 2)
+                self.assertEqual(stt_res["pane"], 9)
+                mock_send.assert_called_with("rdr", None, 9, "check for new features", True)
+
+                self.assertEqual(server.normalize_spoken_targets("pageantry"), "agent 3")
+
     def test_analyze_returns_question_and_options(self) -> None:
         sample = "Which database?\n1. SQLite\n2. Postgres\n3. DuckDB\n4. Redis\n"
         res = analyze_for_tts(sample)
