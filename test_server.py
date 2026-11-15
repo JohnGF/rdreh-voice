@@ -185,6 +185,52 @@ Which approach do you prefer?
             ],
         )
 
+    def test_summarize_git_changes(self) -> None:
+        fake_proc = unittest.mock.Mock(returncode=0, stdout=" M server.py\n?? notes.txt\n")
+        with patch.object(server.subprocess, "run", return_value=fake_proc):
+            out = server.summarize_git_changes("/home/john/git/rdreh-voice")
+        self.assertEqual(out, "1 modified, 1 untracked in rdreh-voice: server.py, notes.txt.")
+
+    def test_summarize_tokens(self) -> None:
+        with patch.object(server, "run_rdr", return_value='{"today": {"total": 12345}}'):
+            out = server.summarize_tokens("rdr")
+        self.assertEqual(out, "Today's token usage is 12,345 tokens.")
+
+    def test_new_voice_commands(self) -> None:
+        fake_state = {
+            "ok": True,
+            "panes": [
+                {
+                    "id": 7,
+                    "workspace_index": 1,
+                    "pane_index": 0,
+                    "agent_num": 1,
+                    "agent": True,
+                    "state": "idle",
+                    "focused": True,
+                    "cwd": "/home/john/git/rdreh-voice",
+                    "job_label": "rdreh-voice",
+                }
+            ],
+            "workspaces": [{"index": 1, "name": "agents", "active": True, "panes": [7]}],
+            "counts": {"total": 1, "busy": 0, "finished": 1},
+        }
+        with patch.object(server, "fetch_panes", return_value=fake_state):
+            rep = server.parse_and_execute_command("rdr", None, "repeat", 7)
+            self.assertEqual(rep["action"], "repeat")
+
+            foc = server.parse_and_execute_command("rdr", None, "focus agent one", 7)
+            self.assertEqual(foc["action"], "focus")
+            self.assertEqual(foc["pane"], 7)
+
+            with patch.object(server, "summarize_tokens", return_value="Today's token usage is 100 tokens."):
+                tok = server.parse_and_execute_command("rdr", None, "token usage", 7)
+                self.assertEqual(tok["action"], "tokens")
+
+            with patch.object(server, "summarize_git_changes", return_value="Working tree is clean in rdreh-voice."):
+                chg = server.parse_and_execute_command("rdr", None, "what changed in agent 1", 7)
+                self.assertEqual(chg["action"], "git_status")
+
 
 if __name__ == "__main__":
     unittest.main()

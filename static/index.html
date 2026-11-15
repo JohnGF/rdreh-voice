@@ -350,8 +350,11 @@
       } catch (_) {}
     }
 
+    let lastSpoken = "";
+
     function speak(text) {
       if (!text) return;
+      lastSpoken = text;
       spokenEl.textContent = text;
       if (!("speechSynthesis" in window)) return;
       window.speechSynthesis.cancel();
@@ -523,59 +526,64 @@
       }
     }
 
+    async function applyState(res) {
+      if (!res.ok) {
+        countsEl.textContent = res.error || "rdreh offline";
+        if (res.error === "unauthorized") {
+          gridEl.className = "grid single";
+          gridEl.innerHTML = `<div class="empty" style="flex-direction:column;gap:8px;">
+            <div>Token required (<code>RDR_VOICE_TOKEN</code> is set)</div>
+            <div style="display:flex;gap:6px;">
+              <input id="tok-in" type="password" placeholder="Enter token" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 10px;" />
+              <button id="tok-save" class="primary">Unlock</button>
+            </div>
+          </div>`;
+          document.getElementById("tok-save").onclick = () => {
+            token = document.getElementById("tok-in").value.trim();
+            localStorage.setItem("rdr_voice_token", token);
+            refreshPanes();
+            startEventStream();
+          };
+        }
+        return;
+      }
+      allPanes = res.panes || [];
+      workspaces = res.workspaces || [];
+      if (activeWorkspace == null && workspaces.length > 0) {
+        const activeWs = workspaces.find((w) => w.active) || workspaces[0];
+        activeWorkspace = activeWs.index;
+      }
+
+      const c = res.counts || { total: 0, busy: 0, finished: 0 };
+      countsEl.textContent = `${workspaces.length} win · ${allPanes.length} panes · ${c.busy} busy · ${c.finished} done`;
+
+      // Detect working -> idle transitions across all panes
+      const newlyFinished = [];
+      for (const p of allPanes) {
+        const prev = prevStates.get(p.id);
+        if (initialized && prev === "working" && p.state === "idle") {
+          newlyFinished.push(p);
+        }
+        prevStates.set(p.id, p.state);
+      }
+      initialized = true;
+
+      renderTabs();
+      renderGrid();
+      await refreshTails();
+
+      if ((autoRead || notifyEnabled) && newlyFinished.length > 0) {
+        const p = newlyFinished[0];
+        const t = await api(`/api/tail?pane=${p.id}&lines=40`);
+        if (autoRead) speak(formatPaneSpeech(p, t));
+        if (notifyEnabled) sendBrowserNotification(p, t);
+      }
+    }
+
     async function refreshPanes() {
       try {
         const res = await api("/api/panes");
-        if (!res.ok) {
-          countsEl.textContent = res.error || "rdreh offline";
-          if (res.error === "unauthorized") {
-            gridEl.className = "grid single";
-            gridEl.innerHTML = `<div class="empty" style="flex-direction:column;gap:8px;">
-              <div>Token required (<code>RDR_VOICE_TOKEN</code> is set)</div>
-              <div style="display:flex;gap:6px;">
-                <input id="tok-in" type="password" placeholder="Enter token" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 10px;" />
-                <button id="tok-save" class="primary">Unlock</button>
-              </div>
-            </div>`;
-            document.getElementById("tok-save").onclick = () => {
-              token = document.getElementById("tok-in").value.trim();
-              localStorage.setItem("rdr_voice_token", token);
-              refreshPanes();
-            };
-          }
-          return;
-        }
-        allPanes = res.panes || [];
-        workspaces = res.workspaces || [];
-        if (activeWorkspace == null && workspaces.length > 0) {
-          const activeWs = workspaces.find((w) => w.active) || workspaces[0];
-          activeWorkspace = activeWs.index;
-        }
-
-        const c = res.counts || { total: 0, busy: 0, finished: 0 };
-        countsEl.textContent = `${workspaces.length} win · ${allPanes.length} panes · ${c.busy} busy · ${c.finished} done`;
-
-        // Detect working -> idle transitions across all panes
-        const newlyFinished = [];
-        for (const p of allPanes) {
-          const prev = prevStates.get(p.id);
-          if (initialized && prev === "working" && p.state === "idle") {
-            newlyFinished.push(p);
-          }
-          prevStates.set(p.id, p.state);
-        }
-        initialized = true;
-
-        renderTabs();
-        renderGrid();
-        await refreshTails();
-
-        if ((autoRead || notifyEnabled) && newlyFinished.length > 0) {
-          const p = newlyFinished[0];
-          const t = await api(`/api/tail?pane=${p.id}&lines=40`);
-          if (autoRead) speak(formatPaneSpeech(p, t));
-          if (notifyEnabled) sendBrowserNotification(p, t);
-        }
+        await applyState(res);
       } catch (err) {
         countsEl.textContent = "Disconnected";
       }
@@ -600,9 +608,13 @@
           if (res.workspace_index != null) activeWorkspace = res.workspace_index;
           zoomedPaneId = null;
         }
-        if (res.pane) selectedPaneId = res.pane;
-        if (res.spoken) speak(res.spoken);
-        else if (res.error) speak(res.error);
+        if (res.action === "repeat") {
+          speak(lastSpoken || "Nothing to repeat.");
+        } else {
+          if (res.pane) selectedPaneId = res.pane;
+          if (res.spoken) speak(res.spoken);
+          else if (res.error) speak(res.error);
+        }
         await refreshPanes();
       } catch (err) {
         spokenEl.textContent = `Send failed: ${err && err.message ? err.message : err}`;
@@ -729,8 +741,29 @@
       micBtn.onclick = () => rec.start();
     }
 
+    let eventSource = null;
+    function startEventStream() {
+      if (!("EventSource" in window)) return;
+      if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+      }
+      const q = token ? `?token=${encodeURIComponent(token)}` : "";
+      eventSource = new EventSource(`/api/events${q}`);
+      eventSource.addEventListener("panes", (ev) => {
+        try {
+          applyState(JSON.parse(ev.data));
+        } catch (_) {}
+      });
+    }
+
     refreshPanes();
-    setInterval(refreshPanes, 2500);
+    startEventStream();
+    setInterval(() => {
+      if (!eventSource || eventSource.readyState === EventSource.CLOSED) {
+        refreshPanes();
+      }
+    }, 5000);
   </script>
 </body>
 </html>

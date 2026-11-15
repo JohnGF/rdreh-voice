@@ -76,8 +76,12 @@ Spoken numbers (`one` through `ten`) are normalized automatically (e.g. `agent o
   - `status` / `counts` / `summary`
   - `read agent 1` / `what did agent 1 say`
   - `read all` / `read finished`
+  - `repeat` / `say again`
+  - `tokens` / `token usage`
+  - `what changed` / `what changed in agent 1`
 - **Switch Views & Cross-Window**:
   - `agents` / `show agents`
+  - `focus agent 1` / `select pane 2`
   - `window 2` / `switch to window 2`
   - Prefix any command with `window <N>` (e.g. `window 2 read pane 1`).
 - **Send Message**:

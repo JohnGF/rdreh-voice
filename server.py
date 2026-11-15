@@ -8,6 +8,7 @@ import json
 import os
 import re
 import shutil
+import ssl
 import subprocess
 import time
 from http import HTTPStatus
@@ -440,6 +441,54 @@ def tail_pane(rdr_bin: str, session: str | None, pane_id: int, lines: int = 40) 
     return str(data.get("text") or "")
 
 
+def summarize_git_changes(cwd: str) -> str:
+    """Return a concise spoken summary of git working-tree changes in `cwd`."""
+    if not cwd:
+        return "No working directory for that pane."
+    label = Path(cwd).name or cwd
+    proc = subprocess.run(
+        ["git", "-C", cwd, "status", "--short"],
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    if proc.returncode != 0:
+        return f"Not a git repository in {label}."
+    lines = [ln for ln in proc.stdout.splitlines() if ln.strip()]
+    if not lines:
+        return f"Working tree is clean in {label}."
+    modified = sum(1 for ln in lines if not ln.startswith("??"))
+    untracked = sum(1 for ln in lines if ln.startswith("??"))
+    names = [Path(ln[3:].split(" -> ")[-1].strip()).name for ln in lines[:4]]
+    parts = []
+    if modified:
+        parts.append(f"{modified} modified")
+    if untracked:
+        parts.append(f"{untracked} untracked")
+    file_list = ", ".join(names)
+    more = f", and {len(lines) - 4} more" if len(lines) > 4 else ""
+    return f"{', '.join(parts)} in {label}: {file_list}{more}."
+
+
+def summarize_tokens(rdr_bin: str) -> str:
+    """Return a concise spoken summary from `rdr tokens --json`."""
+    try:
+        raw = run_rdr(rdr_bin, None, ["tokens", "--json"])
+        data = json.loads(raw)
+    except Exception as exc:
+        return f"Could not read token usage: {exc}"
+    if isinstance(data, dict):
+        today = data.get("today") or data.get("Today") or {}
+        if isinstance(today, dict) and today:
+            total = today.get("total") or today.get("tokens") or sum(
+                v for v in today.values() if isinstance(v, (int, float))
+            )
+            return f"Today's token usage is {int(total):,} tokens."
+        if "total" in data and isinstance(data["total"], (int, float)):
+            return f"Total token usage is {int(data['total']):,} tokens."
+    return "Token telemetry is available, but no summary count was found."
+
+
 def parse_and_execute_command(
     rdr_bin: str,
     session: str | None,
@@ -496,6 +545,56 @@ def parse_and_execute_command(
         c = state["counts"]
         spoken = f"{c['total']} agents total: {c['busy']} working, {c['finished']} finished."
         return {"ok": True, "action": "status", "spoken": spoken, "counts": c}
+
+    # Repeat last spoken announcement
+    if lower in {"repeat", "say again", "what did you say", "pardon"}:
+        return {"ok": True, "action": "repeat", "spoken": ""}
+
+    # Token usage summary
+    if lower in {"tokens", "token usage", "usage", "spend", "how many tokens"}:
+        return {"ok": True, "action": "tokens", "spoken": summarize_tokens(rdr_bin)}
+
+    # Git diff / working tree summary ("what changed", "what changed in agent 1")
+    m = re.match(
+        r"^(?:what changed|changes|git status)(?:\s+(?:in|for|on)\s+(?:agent\s+|pane\s+)?(\d+))?$",
+        lower,
+    )
+    if m:
+        num = int(m.group(1)) if m.group(1) else None
+        target = (
+            resolve_target_pane(panes, num, view_mode=view_mode, active_workspace=active_workspace, ws_ref=ws_ref)
+            if num is not None
+            else (
+                next((p for p in panes if p["id"] == default_pane), None)
+                or resolve_target_pane(panes, None, view_mode=view_mode, active_workspace=active_workspace, ws_ref=ws_ref)
+            )
+        )
+        if not target:
+            return {"ok": False, "error": "No target pane available", "spoken": "No pane found."}
+        return {
+            "ok": True,
+            "action": "git_status",
+            "pane": target["id"],
+            "spoken": summarize_git_changes(target.get("cwd", "")),
+        }
+
+    # Focus / select pane ("focus agent 1", "select pane 2")
+    m = re.match(r"^(?:focus|select)\s+(?:agent\s+|pane\s+)?(\d+)$", lower)
+    if m:
+        num = int(m.group(1))
+        target = resolve_target_pane(
+            panes, num, view_mode=view_mode, active_workspace=active_workspace, ws_ref=ws_ref
+        )
+        if not target:
+            return {"ok": False, "error": f"Unknown target {num}", "spoken": f"Target {num} not found."}
+        lnum = pane_label_num(target, "workspace" if ws_ref is not None else view_mode)
+        noun = "agent" if (ws_ref is None and view_mode == "agents" and target.get("agent_num") is not None) else "pane"
+        return {
+            "ok": True,
+            "action": "focus",
+            "pane": target["id"],
+            "spoken": f"Focused {noun} {lnum}.",
+        }
 
     # Read all finished / active agents
     if lower in {"read all", "read finished", "read agents"}:
@@ -715,6 +814,37 @@ def make_handler(rdr_bin: str, session: str | None, token: str | None) -> type[B
             try:
                 if parsed.path == "/api/panes":
                     self._send_json(HTTPStatus.OK, fetch_panes(rdr_bin, session))
+                elif parsed.path == "/api/events":
+                    self.send_response(HTTPStatus.OK)
+                    self.send_header("Content-Type", "text/event-stream")
+                    self.send_header("Cache-Control", "no-cache")
+                    self.send_header("Connection", "keep-alive")
+                    self.end_headers()
+                    last_payload: str | None = None
+                    ticks = 0
+                    try:
+                        while True:
+                            try:
+                                payload = json.dumps(fetch_panes(rdr_bin, session))
+                                if payload != last_payload:
+                                    self.wfile.write(f"event: panes\ndata: {payload}\n\n".encode("utf-8"))
+                                    self.wfile.flush()
+                                    last_payload = payload
+                                    ticks = 0
+                                elif ticks >= 15:
+                                    self.wfile.write(b": ping\n\n")
+                                    self.wfile.flush()
+                                    ticks = 0
+                            except Exception as exc:
+                                err_payload = json.dumps({"ok": False, "error": str(exc)})
+                                if err_payload != last_payload:
+                                    self.wfile.write(f"event: panes\ndata: {err_payload}\n\n".encode("utf-8"))
+                                    self.wfile.flush()
+                                    last_payload = err_payload
+                            time.sleep(1.0)
+                            ticks += 1
+                    except (BrokenPipeError, ConnectionResetError, OSError):
+                        return
                 elif parsed.path == "/api/tail":
                     pane_id = int(query["pane"][0])
                     lines = int(query.get("lines", ["40"])[0])
@@ -801,12 +931,20 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=8765, help="Bind port (default: 8765)")
     parser.add_argument("--session", default=os.environ.get("RDR_SESSION"), help="rdreh session name")
+    parser.add_argument("--tls-cert", default=os.environ.get("RDR_VOICE_TLS_CERT"), help="Path to TLS certificate PEM")
+    parser.add_argument("--tls-key", default=os.environ.get("RDR_VOICE_TLS_KEY"), help="Path to TLS private key PEM")
     args = parser.parse_args()
 
     rdr_bin = resolve_rdr_bin()
     token = os.environ.get("RDR_VOICE_TOKEN") or None
     server = ThreadingHTTPServer((args.host, args.port), make_handler(rdr_bin, args.session, token))
-    print(f"rdreh-voice listening on http://{args.host}:{args.port} (using {rdr_bin})")
+    scheme = "http"
+    if args.tls_cert and args.tls_key:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(certfile=args.tls_cert, keyfile=args.tls_key)
+        server.socket = ctx.wrap_socket(server.socket, server_side=True)
+        scheme = "https"
+    print(f"rdreh-voice listening on {scheme}://{args.host}:{args.port} (using {rdr_bin})")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
