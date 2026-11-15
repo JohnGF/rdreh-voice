@@ -139,12 +139,11 @@ def _extract_clean_lines(text: str) -> list[str]:
     return cleaned
 
 
-def _format_options_block(lines: list[str]) -> tuple[str, int] | None:
-    """If recent lines contain a numbered option list, return (spoken_text, start_idx)."""
+def _extract_options(lines: list[str]) -> tuple[str, list[dict[str, Any]]] | None:
+    """If recent lines contain a numbered option list, return (question_ctx, options)."""
     opt_indices = [i for i, ln in enumerate(lines) if NUMBERED_OPT_RE.match(ln)]
     if len(opt_indices) < 2:
         return None
-    # Focus on the last contiguous/near-contiguous group of options
     last_group: list[int] = [opt_indices[-1]]
     for idx in reversed(opt_indices[:-1]):
         if last_group[-1] - idx <= 3:
@@ -156,20 +155,29 @@ def _format_options_block(lines: list[str]) -> tuple[str, int] | None:
         return None
 
     first_opt = last_group[0]
-    # Include up to 3 context/question lines right above the first option
     ctx_start = max(0, first_opt - 3)
     ctx_lines = [LEADING_SYMBOL_RE.sub("", ln).strip() for ln in lines[ctx_start:first_opt]]
     ctx_lines = [c for c in ctx_lines if c]
-
-    parts: list[str] = []
-    if ctx_lines:
-        parts.append(" ".join(ctx_lines))
+    options: list[dict[str, Any]] = []
     for i in range(first_opt, last_group[-1] + 1):
         m = NUMBERED_OPT_RE.match(lines[i])
         if m:
-            num, opt_text = m.group(1), m.group(2).strip()
-            parts.append(f"Option {num}: {opt_text}.")
-    return " ".join(parts), ctx_start
+            options.append({"num": int(m.group(1)), "label": m.group(2).strip()})
+    if len(options) < 2:
+        return None
+    return " ".join(ctx_lines), options
+
+
+def _format_options_block(lines: list[str]) -> tuple[str, int] | None:
+    """If recent lines contain a numbered option list, return (spoken_text, start_idx)."""
+    extracted = _extract_options(lines)
+    if extracted is None:
+        return None
+    ctx, options = extracted
+    parts: list[str] = [ctx] if ctx else []
+    for opt in options:
+        parts.append(f"Option {opt['num']}: {opt['label']}.")
+    return " ".join(parts), 0
 
 
 def _truncate_spoken(text: str, max_chars: int) -> str:
@@ -179,19 +187,28 @@ def _truncate_spoken(text: str, max_chars: int) -> str:
     return cut + "." if cut and cut[-1] not in ".?!" else cut
 
 
-def analyze_for_tts(text: str, *, max_chars: int = 480) -> dict[str, str]:
+def analyze_for_tts(text: str, *, max_chars: int = 480) -> dict[str, Any]:
     """Extract only relevant spoken content and classify whether user action is needed."""
     lines = _extract_clean_lines(text)
     if not lines:
-        return {"kind": "finished", "spoken": ""}
+        return {"kind": "finished", "spoken": "", "question": "", "options": []}
 
     # 1. Check for numbered options / choices (e.g. permission menu or multi-choice question)
-    opts = _format_options_block(lines[-20:])
-    if opts is not None:
-        raw_spoken, _ = opts
+    extracted = _extract_options(lines[-20:])
+    if extracted is not None:
+        ctx, options = extracted
+        parts = [ctx] if ctx else []
+        for opt in options:
+            parts.append(f"Option {opt['num']}: {opt['label']}.")
+        raw_spoken = " ".join(parts)
         spoken = sanitize_for_speech(raw_spoken)
         kind = "action" if ACTION_PROMPT_RE.search(raw_spoken) else "question"
-        return {"kind": kind, "spoken": _truncate_spoken(spoken, max_chars)}
+        return {
+            "kind": kind,
+            "spoken": _truncate_spoken(spoken, max_chars),
+            "question": ctx,
+            "options": options,
+        }
 
     # 2. Check recent lines for explicit action/permission prompt or a direct question
     recent = [LEADING_SYMBOL_RE.sub("", ln).strip() for ln in lines[-10:]]
@@ -206,20 +223,30 @@ def analyze_for_tts(text: str, *, max_chars: int = 480) -> dict[str, str]:
                 start = max(0, i - 1)
                 break
         spoken = sanitize_for_speech(" ".join(recent[start:]))
-        return {"kind": "action", "spoken": _truncate_spoken(spoken, max_chars)}
+        return {
+            "kind": "action",
+            "spoken": _truncate_spoken(spoken, max_chars),
+            "question": " ".join(recent[start:]),
+            "options": [],
+        }
 
     # Direct question (line ending with '?' in the last few lines)
     q_idx = next((i for i in range(len(recent) - 1, -1, -1) if recent[i].rstrip().endswith("?")), None)
     if q_idx is not None:
         start = max(0, q_idx - 2)
         spoken = sanitize_for_speech(" ".join(recent[start:]))
-        return {"kind": "question", "spoken": _truncate_spoken(spoken, max_chars)}
+        return {
+            "kind": "question",
+            "spoken": _truncate_spoken(spoken, max_chars),
+            "question": " ".join(recent[start:]),
+            "options": [],
+        }
 
     # 3. Normal completion: read the concluding prose (skipping code/noise if possible)
     prose = [ln for ln in recent if len(ln.split()) >= 3]
     chosen = prose[-4:] if prose else recent[-3:]
     spoken = sanitize_for_speech(" ".join(chosen))
-    return {"kind": "finished", "spoken": _truncate_spoken(spoken, max_chars)}
+    return {"kind": "finished", "spoken": _truncate_spoken(spoken, max_chars), "question": "", "options": []}
 
 
 def clean_for_tts(text: str, max_lines: int = 6, max_chars: int = 420) -> str:
@@ -610,6 +637,8 @@ def parse_and_execute_command(
     view_mode: str = "agents",
 ) -> dict[str, Any]:
     raw = normalize_spoken_targets(transcript.strip())
+    # Strip optional leading wake keyword ("rdr", "r d r", "rdreh", "radar")
+    raw = re.sub(r"^(?:r\s*\.?\s*d\s*\.?\s*r\s*\.?|rdreh|radar)\s*[:,]?\s+", "", raw, flags=re.IGNORECASE).strip()
     if not raw:
         return {"ok": False, "error": "Empty command", "spoken": "Nothing heard."}
 
@@ -1103,13 +1132,15 @@ def make_handler(rdr_bin: str, session: str | None, token: str | None) -> type[B
                             "text": text,
                             "kind": analysis["kind"],
                             "spoken": analysis["spoken"],
+                            "question": analysis.get("question", ""),
+                            "options": analysis.get("options", []),
                         },
                     )
                 elif parsed.path == "/api/tails":
                     raw_ids = query.get("panes", [""])[0]
                     pane_ids = [int(x) for x in raw_ids.split(",") if x.strip().isdigit()]
                     lines = int(query.get("lines", ["24"])[0])
-                    tails: dict[str, dict[str, str]] = {}
+                    tails: dict[str, dict[str, Any]] = {}
                     for pid in pane_ids[:16]:
                         try:
                             text = tail_pane(rdr_bin, session, pid, lines)
@@ -1118,9 +1149,17 @@ def make_handler(rdr_bin: str, session: str | None, token: str | None) -> type[B
                                 "text": text,
                                 "kind": analysis["kind"],
                                 "spoken": analysis["spoken"],
+                                "question": analysis.get("question", ""),
+                                "options": analysis.get("options", []),
                             }
                         except Exception as exc:
-                            tails[str(pid)] = {"text": f"[error: {exc}]", "kind": "finished", "spoken": ""}
+                            tails[str(pid)] = {
+                                "text": f"[error: {exc}]",
+                                "kind": "finished",
+                                "spoken": "",
+                                "question": "",
+                                "options": [],
+                            }
                     self._send_json(HTTPStatus.OK, {"ok": True, "tails": tails})
                 else:
                     self._send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not found"})

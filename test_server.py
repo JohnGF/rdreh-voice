@@ -339,6 +339,17 @@ Which approach do you prefer?
                 self.assertEqual(cd_res["spoken"], "Changed agent 1 to rdreh.")
                 mock_send.assert_called_once_with("rdr", None, 9, "cd '/home/john/git/rdreh'", True)
 
+                wake_res = server.parse_and_execute_command("rdr", None, "r d r tell agent 1 to run tests", 9)
+                self.assertEqual(wake_res["action"], "send")
+                mock_send.assert_called_with("rdr", None, 9, "run tests", True)
+
+    def test_analyze_returns_question_and_options(self) -> None:
+        sample = "Which database?\n1. SQLite\n2. Postgres\n3. DuckDB\n4. Redis\n"
+        res = analyze_for_tts(sample)
+        self.assertEqual(res["question"], "Which database?")
+        self.assertEqual(len(res["options"]), 4)
+        self.assertEqual(res["options"][2], {"num": 3, "label": "DuckDB"})
+
 
 if __name__ == "__main__":
     unittest.main()

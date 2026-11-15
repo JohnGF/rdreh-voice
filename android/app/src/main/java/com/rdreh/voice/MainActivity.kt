@@ -14,6 +14,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
@@ -34,6 +35,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var speechMode: String = Prefs.MODE_FULL
     private var selectedWindowIndex: Int? = -1 // -1 = Agents only (default), null = All windows
     private var lastState: JSONObject? = null
+    private var lastTails: JSONObject = JSONObject()
     private var tts: TextToSpeech? = null
     private var ttsReady = false
 
@@ -215,12 +217,26 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         thread {
             val res = runCatching { RdrApiClient.getJson(url, token, "/api/panes") }
                 .getOrElse { JSONObject().put("ok", false).put("error", it.message ?: "Failed") }
+            var tailsObj = JSONObject()
+            if (res.optBoolean("ok", false)) {
+                val panes = res.optJSONArray("panes") ?: JSONArray()
+                val ids = (0 until panes.length()).map { panes.getJSONObject(it).optInt("id") }
+                if (ids.isNotEmpty()) {
+                    val tailsRes = runCatching {
+                        RdrApiClient.getJson(url, token, "/api/tails?panes=${ids.joinToString(",")}&lines=30")
+                    }.getOrNull()
+                    if (tailsRes != null && tailsRes.optBoolean("ok", false)) {
+                        tailsObj = tailsRes.optJSONObject("tails") ?: JSONObject()
+                    }
+                }
+            }
             runOnUiThread {
                 if (!res.optBoolean("ok", false)) {
                     statusText.text = "Error: ${res.optString("error", "offline")}"
                     return@runOnUiThread
                 }
                 lastState = res
+                lastTails = tailsObj
                 val c = res.optJSONObject("counts")
                 val total = c?.optInt("total", 0) ?: 0
                 val busy = c?.optInt("busy", 0) ?: 0
@@ -352,6 +368,31 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     if (state == "working") Color.parseColor("#FBBF24") else Color.parseColor("#86EFAC")
                 )
             }
+            addView(header)
+
+            val tailInfo = lastTails.optJSONObject(paneId.toString())
+            val question = tailInfo?.optString("question", "")?.trim().orEmpty()
+            val options = tailInfo?.optJSONArray("options")
+            if (question.isNotEmpty()) {
+                addView(TextView(this@MainActivity).apply {
+                    text = question
+                    textSize = 13f
+                    setTextColor(Color.parseColor("#E2E8F0"))
+                    setPadding(0, 8, 0, 6)
+                })
+            }
+            if (options != null && options.length() > 0) {
+                for (k in 0 until options.length()) {
+                    val opt = options.optJSONObject(k) ?: continue
+                    val num = opt.optInt("num")
+                    val optLabel = opt.optString("label", "")
+                    addView(Button(this@MainActivity).apply {
+                        text = "$num: $optLabel"
+                        setOnClickListener { quickSend(paneId, num.toString()) }
+                    })
+                }
+            }
+
             val btns = LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 addView(Button(this@MainActivity).apply {
@@ -366,6 +407,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     text = "No"
                     setOnClickListener { quickSend(paneId, "n") }
                 })
+                addView(Button(this@MainActivity).apply {
+                    text = "Msg"
+                    setOnClickListener { promptAndSend(paneId, label) }
+                })
             }
             val btns2 = LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -378,10 +423,22 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     setOnClickListener { quickSend(paneId, "/clear") }
                 })
             }
-            addView(header)
             addView(btns)
             addView(btns2)
         }
+    }
+
+    private fun promptAndSend(paneId: Int, label: String) {
+        val input = EditText(this).apply { hint = "Type message for $label" }
+        AlertDialog.Builder(this)
+            .setTitle("Send to $label")
+            .setView(input)
+            .setPositiveButton("Send") { _, _ ->
+                val msg = input.text.toString().trim()
+                if (msg.isNotEmpty()) quickSend(paneId, msg)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun readPane(paneId: Int, label: String) {
