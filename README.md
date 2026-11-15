@@ -1,6 +1,29 @@
 # rdreh-voice
 
-Minimal zero-dependency voice, TTS, and notification PWA companion for [rdreh](../rdreh/README.md).
+Minimal zero-dependency voice, TTS, and notification PWA companion for [rdreh](https://github.com/JohnGF/rdreh).
+
+## Install
+
+```sh
+uv tool install git+https://github.com/JohnGF/rdreh-voice
+```
+
+Or run directly from a local checkout:
+
+```fish
+uv run /home/john/git/rdreh-voice/server.py --host 127.0.0.1 --port 8765
+```
+
+### Systemd user service
+
+A unit template is provided at [systemd/rdreh-voice.service](systemd/rdreh-voice.service):
+
+```sh
+mkdir -p ~/.config/systemd/user
+cp systemd/rdreh-voice.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now rdreh-voice
+```
 
 ## Run
 

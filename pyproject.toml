@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "rdreh-voice"
+version = "0.1.0"
+description = "Zero-dependency voice, TTS, and notification PWA companion for rdreh"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/JohnGF/rdreh-voice"
+Repository = "https://github.com/JohnGF/rdreh-voice"
+Companion = "https://github.com/JohnGF/rdreh"
+
+[project.scripts]
+rdreh-voice = "server:main"
+
+[tool.hatch.build.targets.wheel]
+only-include = ["server.py", "static"]

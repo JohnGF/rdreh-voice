@@ -1,0 +1,14 @@
+[Unit]
+Description=rdreh-voice HTTP/PWA companion for rdreh
+After=network.target
+
+[Service]
+Type=simple
+# Set RDR_VOICE_TOKEN if binding to a non-loopback address (e.g. WireGuard)
+# Environment=RDR_VOICE_TOKEN=change-me
+ExecStart=%h/.local/bin/rdreh-voice --host 127.0.0.1 --port 8765
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target
