@@ -339,8 +339,20 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     setOnClickListener { quickSend(paneId, "n") }
                 })
             }
+            val btns2 = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                addView(Button(this@MainActivity).apply {
+                    text = "Compact"
+                    setOnClickListener { quickSend(paneId, "/compact") }
+                })
+                addView(Button(this@MainActivity).apply {
+                    text = "Clear"
+                    setOnClickListener { quickSend(paneId, "/clear") }
+                })
+            }
             addView(header)
             addView(btns)
+            addView(btns2)
         }
     }
 

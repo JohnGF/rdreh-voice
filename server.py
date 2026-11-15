@@ -653,6 +653,37 @@ def parse_and_execute_command(
         noun = "agent" if (ws_ref is None and view_mode == "agents" and target.get("agent_num") is not None) else "pane"
         return num, noun
 
+    # "compact", "compact agent 1", "clear", "clear agent 1", "new chat"
+    m = re.match(
+        r"^(compact|clear|reset|new\s+chat)(?:\s+(?:for\s+|on\s+)?(?:agent\s+|pane\s+)?(\d+))?$",
+        lower,
+    )
+    if m:
+        verb = m.group(1)
+        slash_cmd = "/compact" if verb == "compact" else "/clear"
+        num = int(m.group(2)) if m.group(2) else None
+        target = (
+            _resolve(num)
+            if num is not None
+            else (
+                next((p for p in panes if p["id"] == default_pane), None)
+                or resolve_target_pane(
+                    panes, None, view_mode=view_mode, active_workspace=active_workspace
+                )
+            )
+        )
+        if not target:
+            return {"ok": False, "error": "No target pane available", "spoken": "No pane found."}
+        send_to_pane(rdr_bin, session, target["id"], slash_cmd, True)
+        lnum, noun = _label(target)
+        past = "Compacted" if slash_cmd == "/compact" else "Cleared"
+        return {
+            "ok": True,
+            "action": "send",
+            "pane": target["id"],
+            "spoken": f"{past} {noun} {lnum}.",
+        }
+
     # "yes to agent 1", "approve agent 2", "yes 1"
     m = re.match(r"^(yes|yep|yeah|approve|confirm|ok)\s+(?:to\s+)?(?:agent\s+|pane\s+)?(\d+)$", lower)
     if m:

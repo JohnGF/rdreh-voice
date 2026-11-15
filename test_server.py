@@ -275,6 +275,14 @@ Which approach do you prefer?
                 self.assertEqual(snd["pane"], 9)
                 mock_send.assert_called_once_with("rdr", None, 9, "testing", True)
 
+                cmp = server.parse_and_execute_command("rdr", None, "compact agent tree", 2)
+                self.assertEqual(cmp["spoken"], "Compacted agent 3.")
+                mock_send.assert_called_with("rdr", None, 9, "/compact", True)
+
+                clr = server.parse_and_execute_command("rdr", None, "clear", 9)
+                self.assertEqual(clr["spoken"], "Cleared agent 3.")
+                mock_send.assert_called_with("rdr", None, 9, "/clear", True)
+
     def test_sanitize_drops_colons_hyphens_and_filename_dots(self) -> None:
         raw = "Updated server.py (http://10.0.0.100:8765) — check test_server.py; 100% pass!"
         out = server.sanitize_for_speech(raw)
