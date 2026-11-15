@@ -93,3 +93,19 @@ Spoken numbers (`one` through `ten`) are normalized automatically (e.g. `agent o
 ```fish
 uv run python -m unittest -v test_server.py
 ```
+
+## Android App
+
+A native Kotlin Android client lives in `android/`, adding:
+
+- Persistent foreground SSE monitor (`RdrVoiceService`) over WireGuard
+- Actionable notifications with **Approve**, **Reject**, and **Reply** (`RemoteInput`)
+- Bluetooth SCO headset mic + TTS routing and media-button PTT (`MediaSessionCompat`)
+- Quick Settings Tile (`RdrTileService`) and Android Assistant (`android.intent.action.ASSIST`) launch
+
+Build the debug APK:
+
+```fish
+cd android
+./gradlew assembleDebug
+```
