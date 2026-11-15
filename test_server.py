@@ -231,6 +231,16 @@ Which approach do you prefer?
                 chg = server.parse_and_execute_command("rdr", None, "what changed in agent 1", 7)
                 self.assertEqual(chg["action"], "git_status")
 
+    def test_strips_model_mode_footer_chrome(self) -> None:
+        sample = (
+            "All 13 tests passed.\n"
+            "────────────────────────\n"
+            "❯ \n"
+            "  auto · Gemini 4 Hydrogen · medium\n"
+        )
+        res = analyze_for_tts(sample)
+        self.assertEqual(res["spoken"], "All 13 tests passed.")
+
 
 if __name__ == "__main__":
     unittest.main()

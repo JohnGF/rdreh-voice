@@ -30,6 +30,8 @@ TUI_CHROME_RE = re.compile(
     r".*(?:auto mode on|bypass permissions|shift\+tab|esc to interrupt|esc to cancel|"
     r"enter to select|enter to confirm|to navigate|to manage|ctrl\+[a-z] to|"
     r"type a message|type your message|send a message).*|"
+    r"(?:auto|plan|ask|edit|normal|yolo|bypass|default)\s+·\s+.*|"
+    r".*\s+·\s+(?:low|medium|high|max|fast|minimal)(?:\s+·\s+.*)?|"
     r"(?:baked|churned|cooked|worked|thought|brewed|ran)\s+for\s+\d+[hms].*|"
     r"(?:ran|read|edited|wrote|created|deleted|searched|listed|fetched)\s+\d+\s+(?:shell|command|file|match|line).*|"
     r"(?:loading|thinking|working|streaming)\.{0,3}"
