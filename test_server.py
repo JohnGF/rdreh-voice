@@ -241,6 +241,40 @@ Which approach do you prefer?
         res = analyze_for_tts(sample)
         self.assertEqual(res["spoken"], "All 13 tests passed.")
 
+    def test_stt_homophones_and_trailing_target(self) -> None:
+        self.assertEqual(server.normalize_spoken_targets("agents tree"), "agent 3")
+        self.assertEqual(server.normalize_spoken_targets("testing agent tree"), "testing agent 3")
+        self.assertEqual(server.normalize_spoken_targets("read pane to"), "read pane 2")
+
+        fake_state = {
+            "ok": True,
+            "panes": [
+                {
+                    "id": 9,
+                    "workspace_index": 1,
+                    "pane_index": 2,
+                    "agent_num": 3,
+                    "agent": True,
+                    "state": "idle",
+                    "focused": False,
+                    "cwd": "/tmp",
+                    "job_label": "test",
+                }
+            ],
+            "workspaces": [{"index": 1, "name": "agents", "active": True, "panes": [9]}],
+            "counts": {"total": 1, "busy": 0, "finished": 1},
+        }
+        with patch.object(server, "fetch_panes", return_value=fake_state):
+            foc = server.parse_and_execute_command("rdr", None, "agents tree", 2)
+            self.assertEqual(foc["action"], "focus")
+            self.assertEqual(foc["pane"], 9)
+
+            with patch.object(server, "send_to_pane") as mock_send:
+                snd = server.parse_and_execute_command("rdr", None, "testing agent tree", 2)
+                self.assertEqual(snd["action"], "send")
+                self.assertEqual(snd["pane"], 9)
+                mock_send.assert_called_once_with("rdr", None, 9, "testing", True)
+
 
 if __name__ == "__main__":
     unittest.main()

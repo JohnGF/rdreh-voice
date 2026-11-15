@@ -418,23 +418,38 @@ SPOKEN_NUMS = {
     "one": "1",
     "two": "2",
     "three": "3",
+    "tree": "3",
+    "free": "3",
     "four": "4",
+    "for": "4",
     "five": "5",
     "six": "6",
     "seven": "7",
     "eight": "8",
+    "ate": "8",
     "nine": "9",
     "ten": "10",
+    "won": "1",
+    "to": "2",
+    "too": "2",
 }
 
 
 def normalize_spoken_targets(text: str) -> str:
-    """Convert spoken target numbers like 'agent one' -> 'agent 1'."""
+    """Convert spoken target numbers and STT homophones like 'agents tree' -> 'agent 3'."""
+    words = "|".join(SPOKEN_NUMS.keys())
     pattern = re.compile(
-        r"\b(agent|pane|window|workspace|tab)\s+(zero|one|two|three|four|five|six|seven|eight|nine|ten)\b",
+        rf"\b(agents?|panes?|windows?|workspaces?|tabs?)\s+({words}|\d+)\b",
         re.IGNORECASE,
     )
-    return pattern.sub(lambda m: f"{m.group(1)} {SPOKEN_NUMS[m.group(2).lower()]}", text)
+
+    def _repl(m: re.Match[str]) -> str:
+        noun = m.group(1).lower().rstrip("s")
+        raw_num = m.group(2).lower()
+        num = SPOKEN_NUMS.get(raw_num, raw_num)
+        return f"{noun} {num}"
+
+    return pattern.sub(_repl, text)
 
 
 def tail_pane(rdr_bin: str, session: str | None, pane_id: int, lines: int = 40) -> str:
@@ -580,8 +595,8 @@ def parse_and_execute_command(
             "spoken": summarize_git_changes(target.get("cwd", "")),
         }
 
-    # Focus / select pane ("focus agent 1", "select pane 2")
-    m = re.match(r"^(?:focus|select)\s+(?:agent\s+|pane\s+)?(\d+)$", lower)
+    # Focus / select pane ("focus agent 1", "select pane 2", or bare "agent 3")
+    m = re.match(r"^(?:(?:focus|select|switch\s+to)\s+)?(?:agent|pane)\s+(\d+)$", lower)
     if m:
         num = int(m.group(1))
         target = resolve_target_pane(
@@ -723,6 +738,27 @@ def parse_and_execute_command(
         scoped_raw,
         re.IGNORECASE | re.DOTALL,
     )
+    if not m:
+        # Trailing target: "<msg> agent 3" or "<msg> to agent 3"
+        m_tail = re.match(
+            r"^(.+?)\s+(?:(?:send\s+)?to\s+|on\s+)?(?:agent|pane)\s+(\d+)$",
+            scoped_raw,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if m_tail:
+            num = int(m_tail.group(2))
+            msg = m_tail.group(1).strip(" ,:")
+            target = _resolve(num)
+            if not target:
+                return {"ok": False, "error": f"Unknown target {num}", "spoken": f"Target {num} not found."}
+            send_to_pane(rdr_bin, session, target["id"], msg, True)
+            lnum, noun = _label(target)
+            return {
+                "ok": True,
+                "action": "send",
+                "pane": target["id"],
+                "spoken": f"Sent to {noun} {lnum}.",
+            }
     if m:
         num = int(m.group(1))
         msg = m.group(2).strip()
