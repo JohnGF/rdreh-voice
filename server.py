@@ -637,8 +637,13 @@ def parse_and_execute_command(
     view_mode: str = "agents",
 ) -> dict[str, Any]:
     raw = normalize_spoken_targets(transcript.strip())
-    # Strip optional leading wake keyword ("rdr", "r d r", "rdreh", "radar")
-    raw = re.sub(r"^(?:r\s*\.?\s*d\s*\.?\s*r\s*\.?|rdreh|radar)\s*[:,]?\s+", "", raw, flags=re.IGNORECASE).strip()
+    # Strip optional leading wake keyword ("ok rdr", "hey rdr", "rdr", "r d r", "rdreh", "radar")
+    raw = re.sub(
+        r"^(?:(?:ok|okay|hey)\s+)?(?:r\s*\.?\s*d\s*\.?\s*r\s*\.?|rdreh|radar)\s*[:,]?\s+",
+        "",
+        raw,
+        flags=re.IGNORECASE,
+    ).strip()
     if not raw:
         return {"ok": False, "error": "Empty command", "spoken": "Nothing heard."}
 
