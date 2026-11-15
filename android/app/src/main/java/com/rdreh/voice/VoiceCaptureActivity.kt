@@ -34,6 +34,7 @@ class VoiceCaptureActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var recognizer: SpeechRecognizer? = null
     private var tts: TextToSpeech? = null
     private var ttsReady = false
+    private var autoContinue = true
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -150,6 +151,18 @@ class VoiceCaptureActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         if (status == TextToSpeech.SUCCESS) {
             tts?.language = Locale.US
             tts?.setSpeechRate(1.08f)
+            tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                override fun onStart(utteranceId: String?) {}
+                override fun onDone(utteranceId: String?) {
+                    if (autoContinue && utteranceId == "cmd-reply") {
+                        runOnUiThread {
+                            if (!isFinishing && !isDestroyed) restartListening()
+                        }
+                    }
+                }
+                @Deprecated("Deprecated in Java")
+                override fun onError(utteranceId: String?) {}
+            })
             ttsReady = true
         }
     }
@@ -247,6 +260,8 @@ class VoiceCaptureActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 statusView.text = spoken
                 if (ttsReady) {
                     tts?.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, "cmd-reply")
+                } else if (autoContinue && !isFinishing && !isDestroyed) {
+                    statusView.postDelayed({ if (!isFinishing && !isDestroyed) restartListening() }, 800)
                 }
             }
         }
